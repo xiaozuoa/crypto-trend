@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""ATR趋势跟踪策略 — 日线, BTC/ETH, 无杠杆"""
+
+import os, sys, json, math
+from datetime import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from data_engine import fetch_daily, SYMBOLS
+
+WORKSPACE = os.path.expanduser("~/.crypto-trend/workspace")
+os.makedirs(WORKSPACE, exist_ok=True)
+
+
+def ema(data, period):
+    result = [None] * len(data)
+    if len(data) < period:
+        return result
+    mult = 2 / (period + 1)
+    result[period - 1] = sum(d["c"] for d in data[:period]) / period
+    for i in range(period, len(data)):
+        result[i] = (data[i]["c"] - result[i - 1]) * mult + result[i - 1]
+    return result
+
+
+def atr(data, period=14):
+    result = [None] * len(data)
+    trs = []
+    for i in range(1, len(data)):
+        h, l, pc = data[i]["h"], data[i]["l"], data[i - 1]["c"]
+        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+    for i in range(period, len(data)):
+        result[i] = sum(trs[i - period:i]) / period
+    return result
+
+
+def generate_signal(data):
+    """
+    ATR趋势跟踪信号:
+    - 买入: 收盘价 > MA50 + 2*ATR  (强趋势启动)
+    - 卖出: 收盘价 < MA50  OR  收盘价 < 最高价 - 3*ATR  (趋势结束或回撤过大)
+    - 0=空仓, 1=持仓
+    返回: {signal: 1/0, entry_price, stop_loss, trail_stop, atr_val, ma50}
+    """
+    n = len(data)
+    if n < 50:
+        return {"signal": 0, "reason": "数据不足"}
+
+    ma50_vals = []
+    for i in range(49, n):
+        ma50_vals.append(sum(d["c"] for d in data[i - 49:i + 1]) / 50)
+
+    a = atr(data, 14)
+    current = data[-1]
+    current_ma50 = ma50_vals[-1] if ma50_vals else current["c"]
+    current_atr = a[-1] if a[-1] else current["c"] * 0.03
+
+    # 买入条件: 价格突破 MA50 + 2*ATR
+    buy_trigger = current_ma50 + 2 * current_atr
+    if current["c"] > buy_trigger:
+        stop_loss = current_ma50
+        trail_stop = current["c"] - 3 * current_atr
+        return {
+            "signal": 1,
+            "action": "buy",
+            "entry_price": round(current["c"], 2),
+            "stop_loss": round(stop_loss, 2),
+            "trail_stop": round(trail_stop, 2),
+            "atr": round(current_atr, 2),
+            "atr_pct": round(current_atr / current["c"] * 100, 2),
+            "ma50": round(current_ma50, 2),
+            "date": current["date_str"],
+        }
+
+    # 空仓中, 继续等待
+    return {
+        "signal": 0,
+        "action": "wait",
+        "price": round(current["c"], 2),
+        "ma50": round(current_ma50, 2),
+        "buy_trigger": round(buy_trigger, 2),
+        "atr": round(current_atr, 2),
+        "date": current["date_str"],
+    }
+
+
+def check_exit(data, entry_price):
+    """检查是否该卖出 (用于已有持仓的情况)"""
+    n = len(data)
+    if n < 50:
+        return {"exit": False, "reason": "数据不足"}
+
+    closes = [d["c"] for d in data[-50:]]
+    ma50 = sum(closes) / 50
+    a = atr(data, 14)
+    current_atr = a[-1] if a[-1] else data[-1]["c"] * 0.03
+    current = data[-1]
+    highest = max(d["h"] for d in data[-50:])
+
+    trail_stop = highest - 3 * current_atr
+
+    reasons = []
+    if current["c"] < ma50:
+        reasons.append(f"跌破MA50 ({current['c']:.1f} < {ma50:.1f})")
+    if current["c"] < trail_stop:
+        reasons.append(f"跌破跟踪止损 ({current['c']:.1f} < {trail_stop:.1f})")
+
+    if reasons:
+        profit_pct = (current["c"] - entry_price) / entry_price * 100
+        return {
+            "exit": True,
+            "reason": "; ".join(reasons),
+            "exit_price": round(current["c"], 2),
+            "profit_pct": round(profit_pct, 2),
+            "date": current["date_str"],
+        }
+
+    return {
+        "exit": False,
+        "trail_stop": round(trail_stop, 2),
+        "ma50": round(ma50, 2),
+        "current": round(current["c"], 2),
+        "date": current["date_str"],
+    }
+
+
+def run():
+    """运行完整策略, 返回 {BTC: {...}, ETH: {...}}"""
+    results = {}
+    for name, sym in SYMBOLS.items():
+        data = fetch_daily(sym, 200)
+        if len(data) < 60:
+            results[name] = {"error": f"数据不足({len(data)}条)"}
+            continue
+
+        # 加载持仓状态
+        pos_file = os.path.join(WORKSPACE, f"position_{name}.json")
+        has_position = False
+        entry_price = 0
+        if os.path.exists(pos_file):
+            try:
+                with open(pos_file) as f:
+                    pos = json.load(f)
+                if not pos.get("exited"):
+                    has_position = True
+                    entry_price = pos.get("entry_price", 0)
+            except:
+                pass
+
+        if has_position and entry_price > 0:
+            exit_r = check_exit(data, entry_price)
+            results[name] = exit_r
+            if exit_r.get("exit"):
+                # 标记退出
+                try:
+                    with open(pos_file) as f:
+                        pos = json.load(f)
+                    pos["exited"] = True
+                    pos["exit_date"] = data[-1]["date_str"]
+                    pos["exit_price"] = exit_r["exit_price"]
+                    pos["profit_pct"] = exit_r["profit_pct"]
+                    with open(pos_file, "w") as f:
+                        json.dump(pos, f, ensure_ascii=False, indent=2)
+                except:
+                    pass
+        else:
+            sig = generate_signal(data)
+            results[name] = sig
+            if sig.get("signal") == 1:
+                # 记录持仓
+                pos = {
+                    "entry_date": data[-1]["date_str"],
+                    "entry_price": sig["entry_price"],
+                    "stop_loss": sig["stop_loss"],
+                    "trail_stop": sig["trail_stop"],
+                    "exited": False,
+                }
+                with open(pos_file, "w") as f:
+                    json.dump(pos, f, ensure_ascii=False, indent=2)
+
+    return results
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("ATR趋势跟踪 — 信号")
+    print("=" * 60)
+    results = run()
+    for name, r in results.items():
+        print(f"\n[{name}]")
+        for k, v in r.items():
+            print(f"  {k}: {v}")
