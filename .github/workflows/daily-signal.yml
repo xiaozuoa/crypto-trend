@@ -1,8 +1,8 @@
-name: ATR趋势 每日信号
+name: ATR趋势 有操作才发
 
 on:
   schedule:
-    # 每天北京时间 08:00 (UTC 00:00)
+    # 每天北京时间 08:00
     - cron: '0 0 * * *'
   workflow_dispatch:
 
@@ -26,17 +26,4 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
         run: |
           cd scripts
-          python -c "
-          from alert import run, send_email
-          results = run()
-          for name, r in results.items():
-              if r.get('signal') == 1:
-                  print(f'{name}: BUY at {r[\"entry_price\"]}')
-              elif r.get('exit'):
-                  print(f'{name}: SELL {r[\"profit_pct\"]:+.2f}%')
-              elif r.get('action') == 'wait':
-                  print(f'{name}: WAIT (need {r[\"buy_trigger\"]:.1f})')
-              else:
-                  print(f'{name}: HOLD')
-          send_email(results)
-          "
+          python alert.py

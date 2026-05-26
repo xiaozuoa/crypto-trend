@@ -34,7 +34,37 @@ def load_config():
 CFG = load_config()
 
 
+def has_action(results):
+    """检查是否有买卖信号需要通知"""
+    for r in results.values():
+        if r.get("signal") == 1 or r.get("exit"):
+            return True
+    return False
+
+
 def send_email(results):
+    """只在有买卖信号时发送邮件"""
+    if not has_action(results):
+        # 检查是否超过7天没发邮件(定期确认存活)
+        heartbeat_file = os.path.join(WORKSPACE, "last_email.json")
+        now = datetime.now()
+        send_heartbeat = False
+        if os.path.exists(heartbeat_file):
+            try:
+                with open(heartbeat_file) as f:
+                    last = json.load(f)
+                last_dt = datetime.fromisoformat(last.get("time", "2000-01-01"))
+                if (now - last_dt).days >= 7:
+                    send_heartbeat = True
+            except:
+                send_heartbeat = True
+        else:
+            send_heartbeat = True
+
+        if not send_heartbeat:
+            print("无操作信号, 跳过")
+            return False
+
     if not CFG["smtp_pass"]:
         print("未配置SMTP")
         return False
@@ -43,57 +73,54 @@ def send_email(results):
     lines = []
     lines.append(f"⏰ {now.strftime('%Y年%m月%d日 %H:%M')}")
     lines.append("")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("  ATR趋势跟踪 — 每日信号")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("")
-    lines.append("策略: 价格突破MA50+2×ATR买入, 跌破MA50或跟踪止损卖出")
-    lines.append("标的: BTC/USDT + ETH/USDT")
-    lines.append("")
 
-    has_action = False
+    action_count = 0
     for name, r in results.items():
-        lines.append(f"━━━ {name} ━━━")
-        if r.get("error"):
-            lines.append(f"  ⚠️ {r['error']}")
-        elif r.get("signal") == 1:
-            has_action = True
-            lines.append(f"  🔥 买入信号!")
-            lines.append(f"     入场价: ${r['entry_price']:.1f}")
-            lines.append(f"     止损:   ${r['stop_loss']:.1f} (MA50)")
-            lines.append(f"     跟踪止损: ${r['trail_stop']:.1f} (最高价-3×ATR)")
-            lines.append(f"     ATR:    ${r['atr']:.1f} ({r['atr_pct']:.1f}%)")
+        if r.get("signal") == 1:
+            action_count += 1
+            lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
+            lines.append(f"  🔥 {name} 买入信号!")
+            lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
+            lines.append(f"  入场价:   ${r['entry_price']:.1f}")
+            lines.append(f"  止损(MA50): ${r['stop_loss']:.1f}")
+            lines.append(f"  跟踪止损:  ${r['trail_stop']:.1f}")
+            lines.append(f"  ATR:       ${r['atr']:.1f} ({r['atr_pct']:.1f}%)")
+            lines.append("")
+            lines.append("  操作: OKX交易所 → 买入按钮 → 市价买入")
+            lines.append(f"  止损单: 限价${r['stop_loss']:.1f}, 触发即卖")
+            lines.append("")
         elif r.get("exit"):
-            has_action = True
-            lines.append(f"  🔔 卖出信号!")
-            lines.append(f"     原因: {r['reason']}")
-            lines.append(f"     卖出价: ${r['exit_price']:.1f}")
-            lines.append(f"     盈亏: {r['profit_pct']:+.2f}%")
-        elif r.get("action") == "wait":
-            lines.append(f"  ⏸️ 等待中")
-            lines.append(f"     现价: ${r['price']:.1f}")
-            lines.append(f"     MA50: ${r['ma50']:.1f}")
-            lines.append(f"     买入触发价: ${r['buy_trigger']:.1f}")
-        else:
-            lines.append(f"  📊 持仓中 (止损${r.get('trail_stop', '?')})")
+            action_count += 1
+            lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
+            lines.append(f"  🔔 {name} 卖出信号!")
+            lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
+            lines.append(f"  原因:  {r['reason']}")
+            lines.append(f"  卖出价: ${r['exit_price']:.1f}")
+            lines.append(f"  盈亏:  {r['profit_pct']:+.2f}%")
+            lines.append("")
+            lines.append("  操作: OKX交易所 → 全部卖出")
+            lines.append("")
+
+    if action_count == 0:
+        lines.append("📊 持仓状态 (每周确认):")
+        for name, r in results.items():
+            if not r.get("error") and not r.get("exit"):
+                if r.get("action") == "wait":
+                    lines.append(f"  {name}: 空仓, 等信号")
+                else:
+                    lines.append(f"  {name}: 持仓中 (跟踪止损${r.get('trail_stop', '?')})")
         lines.append("")
 
-    if not has_action:
-        lines.append("📭 今日无操作信号")
-
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("风险提示")
+    lines.append("  ATR趋势跟踪 | BTC+ETH | OKX")
+    lines.append(f"  策略: MA50+2×ATR买入, 跌破MA50或3×ATR跟踪止损卖出")
+    lines.append(f"  历史: 2022-2026 BTC+88% ETH+120%")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("  ⚠ 加密波动极大, 历史最大回撤30%+")
-    lines.append("  ⚠ 做好连续亏损5-8次的心理准备(胜率约40%)")
-    lines.append("  ⚠ 严格止损, 不要扛单")
     lines.append("")
-    lines.append("📬 每日自动发送 | 交易所: OKX")
+    lines.append("📬 有操作才发 | 每7天一次心跳确认")
 
     body = "\n".join(lines)
-    subject = "BTC/ETH ATR趋势"
-    if has_action:
-        subject = "🔥 " + subject + " — 有操作!"
+    subject = "📊 持仓确认" if action_count == 0 else ("🔥 买入!" if any(r.get("signal") == 1 for r in results.values()) else "🔔 卖出!")
 
     try:
         msg = MIMEMultipart()
@@ -107,6 +134,10 @@ def send_email(results):
         server.sendmail(CFG["email_from"], CFG["email_to"], msg.as_string())
         server.quit()
         print(f"✅ 已发送 → {CFG['email_to']}")
+
+        # 记录发送时间
+        with open(os.path.join(WORKSPACE, "last_email.json"), "w") as f:
+            json.dump({"time": now.isoformat()}, f)
         return True
     except Exception as e:
         print(f"❌ 发送失败: {e}")
