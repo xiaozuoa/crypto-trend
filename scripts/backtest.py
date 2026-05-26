@@ -67,9 +67,14 @@ def backtest(data):
                 cash = position * p * 0.999
                 position = 0
         else:
-            # 买入条件: p > MA50 + 2*ATR
+            # 买入条件: p > MA50 + 2*ATR + 成交量确认
             buy_trigger = ma + 2 * atr_val
-            if p > buy_trigger:
+            vol_ok = True
+            if i >= 20:
+                avg_vol = sum(d["v"] for d in data[i - 19:i + 1]) / 20
+                if data[i]["v"] < avg_vol * 1.2:
+                    vol_ok = False
+            if p > buy_trigger and vol_ok:
                 position = (cash * 0.98) / p
                 entry_price = p
                 highest = p

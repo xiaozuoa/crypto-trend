@@ -54,9 +54,18 @@ def generate_signal(data):
     current_ma50 = ma50_vals[-1] if ma50_vals else current["c"]
     current_atr = a[-1] if a[-1] else current["c"] * 0.03
 
-    # 买入条件: 价格突破 MA50 + 2*ATR
+    # 买入条件: 价格突破 MA50 + 2*ATR + 成交量确认
     buy_trigger = current_ma50 + 2 * current_atr
-    if current["c"] > buy_trigger:
+    price_ok = current["c"] > buy_trigger
+
+    # 成交量确认: 放量突破才有效(避免无量假突破)
+    vol_ok = True
+    if len(data) >= 20:
+        avg_vol = sum(d["v"] for d in data[-20:]) / 20
+        if data[-1]["v"] < avg_vol * 1.2:
+            vol_ok = False
+
+    if price_ok and vol_ok:
         stop_loss = current_ma50
         trail_stop = current["c"] - 3 * current_atr
         return {
@@ -69,6 +78,7 @@ def generate_signal(data):
             "atr_pct": round(current_atr / current["c"] * 100, 2),
             "ma50": round(current_ma50, 2),
             "date": current["date_str"],
+            "vol_ok": vol_ok,
         }
 
     # 空仓中, 继续等待
@@ -80,6 +90,7 @@ def generate_signal(data):
         "buy_trigger": round(buy_trigger, 2),
         "atr": round(current_atr, 2),
         "date": current["date_str"],
+        "vol_ok": vol_ok,
     }
 
 
