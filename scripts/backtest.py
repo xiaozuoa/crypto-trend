@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ATR趋势回测 — BTC/ETH 2022-2026 完整验证"""
+"""ATR趋势回测 — BTC/ETH 2022-2026 — 支持分币种参数"""
 
 import os, sys, json, math
 from datetime import datetime
@@ -7,22 +7,22 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_engine import fetch_daily_full, SYMBOLS
 from indicators import atr
-from config import STRATEGY as CFG, BACKTEST
+from config import get_config, BACKTEST
 
 
-def backtest(data, verbose=False):
+def backtest(data, cfg, verbose=False):
     n = len(data)
     if n < 60:
         return None
 
-    ma = CFG["ma_period"]
-    a = atr(data, CFG["atr_period"])
+    ma_p = cfg["ma_period"]
+    a = atr(data, cfg["atr_period"])
 
     ma_vals = [None] * n
-    for i in range(ma - 1, n):
-        ma_vals[i] = sum(d["c"] for d in data[i - ma + 1:i + 1]) / ma
+    for i in range(ma_p - 1, n):
+        ma_vals[i] = sum(d["c"] for d in data[i - ma_p + 1:i + 1]) / ma_p
 
-    cash = CFG["initial_capital"]
+    cash = cfg["initial_capital"]
     position = 0
     entry_price = 0
     highest = 0
@@ -30,26 +30,22 @@ def backtest(data, verbose=False):
     equity = [cash]
     trades = []
 
-    fee_mult = 1 - CFG["fee_rate"]
-    buy_atr = CFG["buy_atr_mult"]
-    trail_atr = CFG["trail_atr_mult"]
-    vol_lb = CFG["vol_lookback"]
-    vol_th = CFG["vol_threshold"]
+    fee_mult = 1 - cfg["fee_rate"]
 
-    for i in range(ma, n):
+    for i in range(ma_p, n):
         p = data[i]["c"]
         atr_val = a[i] if a[i] else p * 0.03
         ma_val = ma_vals[i] if ma_vals[i] else p
 
         if position > 0:
             highest = max(highest, p)
-            trail_stop = highest - trail_atr * atr_val
+            trail_stop = highest - cfg["trail_atr_mult"] * atr_val
 
             exit_signal = False
             exit_reason = ""
             if p < ma_val:
                 exit_signal = True
-                exit_reason = f"跌破MA{ma}"
+                exit_reason = f"跌破MA{ma_p}"
             if p < trail_stop:
                 exit_signal = True
                 exit_reason = f"跌破跟踪止损"
@@ -63,17 +59,17 @@ def backtest(data, verbose=False):
                     "exit_price": round(p, 2),
                     "profit_pct": round(profit, 2),
                     "reason": exit_reason,
-                    "bars": i - [j for j, d in enumerate(data) if d["date_str"] == entry_date][0] if entry_date else 0,
+                    "bars": 0,
                 })
                 cash = position * p * fee_mult
                 position = 0
                 entry_date = ""
         else:
-            buy_trigger = ma_val + buy_atr * atr_val
+            buy_trigger = ma_val + cfg["buy_atr_mult"] * atr_val
             vol_ok = True
-            if i >= vol_lb:
-                avg_vol = sum(d["v"] for d in data[i - vol_lb + 1:i + 1]) / vol_lb
-                if data[i]["v"] < avg_vol * vol_th:
+            if i >= cfg["vol_lookback"]:
+                avg_vol = sum(d["v"] for d in data[i - cfg["vol_lookback"] + 1:i + 1]) / cfg["vol_lookback"]
+                if data[i]["v"] < avg_vol * cfg["vol_threshold"]:
                     vol_ok = False
             if p > buy_trigger and vol_ok:
                 position = (cash * fee_mult) / p
@@ -133,23 +129,23 @@ def backtest(data, verbose=False):
 
     if verbose and trades:
         print(f"\n  📋 交易明细 ({len(trades)}笔):")
-        print(f"  {'入场':>10} {'出场':>10} {'入场价':>8} {'出场价':>8} {'盈亏':>8} {'持仓天':>6} {'原因'}")
-        print(f"  {'-'*10} {'-'*10} {'-'*8} {'-'*8} {'-'*8} {'-'*6} {'-'*20}")
+        print(f"  {'入场':>10} {'出场':>10} {'入场价':>8} {'出场价':>8} {'盈亏':>8} {'原因'}")
+        print(f"  {'-'*10} {'-'*10} {'-'*8} {'-'*8} {'-'*8} {'-'*20}")
         for t in trades:
-            print(f"  {t['entry_date']:>10} {t['exit_date']:>10} ${t['entry_price']:>7.1f} ${t['exit_price']:>7.1f} {t['profit_pct']:>+7.2f}% {t['bars']:>5}d  {t['reason']}")
+            print(f"  {t['entry_date']:>10} {t['exit_date']:>10} ${t['entry_price']:>7.1f} ${t['exit_price']:>7.1f} {t['profit_pct']:>+7.2f}%  {t['reason']}")
 
     return result
 
 
 def main():
     print("=" * 80)
-    print("ATR趋势跟踪 — 完整回测")
-    print(f"  参数: MA{CFG['ma_period']} + {CFG['buy_atr_mult']}×ATR买入, 跌破MA{CFG['ma_period']}或{CFG['trail_atr_mult']}×ATR跟踪止损卖出")
-    print(f"  手续费: {CFG['fee_rate']*100:.1f}%  成交量确认: {CFG['vol_threshold']}×{CFG['vol_lookback']}日均量")
+    print("ATR趋势跟踪 — 完整回测 (分币种参数)")
     print("=" * 80)
 
     for name, sym in SYMBOLS.items():
-        print(f"\n[{name}] 获取全量数据...")
+        cfg = get_config(name)
+        print(f"\n[{name}] 参数: MA{cfg['ma_period']}/{cfg['buy_atr_mult']}/{cfg['trail_atr_mult']}  手续费: {cfg['fee_rate']*100:.1f}%")
+        print(f"  获取全量数据...")
         data = fetch_daily_full(sym)
         if not data:
             print("  ❌ 获取失败")
@@ -159,7 +155,7 @@ def main():
         d4y = [d for d in data if BACKTEST["start_date"] <= d["date_str"] <= today]
         print(f"  数据: {d4y[0]['date_str']} ~ {d4y[-1]['date_str']} ({len(d4y)}天)")
 
-        r = backtest(d4y, verbose=True)
+        r = backtest(d4y, cfg, verbose=True)
         if not r:
             print("  ❌ 回测失败")
             continue

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ATR趋势跟踪策略 — 日线, BTC/ETH, 无杠杆"""
+"""ATR趋势跟踪策略 — 日线, BTC/ETH, 无杠杆 — 支持分币种参数"""
 
 import os, sys, json, math
 from datetime import datetime
@@ -7,38 +7,38 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_engine import fetch_daily, SYMBOLS
 from indicators import atr
-from config import STRATEGY as CFG
+from config import get_config
 
 WORKSPACE = os.path.expanduser("~/.crypto-trend/workspace")
 os.makedirs(WORKSPACE, exist_ok=True)
 
 
-def generate_signal(data):
+def generate_signal(data, cfg):
     n = len(data)
-    if n < CFG["ma_period"]:
+    if n < cfg["ma_period"]:
         return {"signal": 0, "reason": "数据不足"}
 
     ma_vals = []
-    for i in range(CFG["ma_period"] - 1, n):
-        ma_vals.append(sum(d["c"] for d in data[i - CFG["ma_period"] + 1:i + 1]) / CFG["ma_period"])
+    for i in range(cfg["ma_period"] - 1, n):
+        ma_vals.append(sum(d["c"] for d in data[i - cfg["ma_period"] + 1:i + 1]) / cfg["ma_period"])
 
-    a = atr(data, CFG["atr_period"])
+    a = atr(data, cfg["atr_period"])
     current = data[-1]
     current_ma = ma_vals[-1] if ma_vals else current["c"]
     current_atr = a[-1] if a[-1] else current["c"] * 0.03
 
-    buy_trigger = current_ma + CFG["buy_atr_mult"] * current_atr
+    buy_trigger = current_ma + cfg["buy_atr_mult"] * current_atr
     price_ok = current["c"] > buy_trigger
 
     vol_ok = True
-    if len(data) >= CFG["vol_lookback"]:
-        avg_vol = sum(d["v"] for d in data[-CFG["vol_lookback"]:]) / CFG["vol_lookback"]
-        if data[-1]["v"] < avg_vol * CFG["vol_threshold"]:
+    if len(data) >= cfg["vol_lookback"]:
+        avg_vol = sum(d["v"] for d in data[-cfg["vol_lookback"]:]) / cfg["vol_lookback"]
+        if data[-1]["v"] < avg_vol * cfg["vol_threshold"]:
             vol_ok = False
 
     if price_ok and vol_ok:
         stop_loss = current_ma
-        trail_stop = current["c"] - CFG["trail_atr_mult"] * current_atr
+        trail_stop = current["c"] - cfg["trail_atr_mult"] * current_atr
         return {
             "signal": 1,
             "action": "buy",
@@ -64,27 +64,27 @@ def generate_signal(data):
     }
 
 
-def check_exit(data, entry_price, entry_date=None):
+def check_exit(data, entry_price, cfg, entry_date=None):
     n = len(data)
-    if n < CFG["ma_period"]:
+    if n < cfg["ma_period"]:
         return {"exit": False, "reason": "数据不足"}
 
-    closes = [d["c"] for d in data[-CFG["ma_period"]:]]
-    ma = sum(closes) / CFG["ma_period"]
-    a = atr(data, CFG["atr_period"])
+    closes = [d["c"] for d in data[-cfg["ma_period"]:]]
+    ma = sum(closes) / cfg["ma_period"]
+    a = atr(data, cfg["atr_period"])
     current_atr = a[-1] if a[-1] else data[-1]["c"] * 0.03
     current = data[-1]
 
     if entry_date:
         highest = max(d["h"] for d in data if d["date_str"] >= entry_date)
     else:
-        highest = max(d["h"] for d in data[-CFG["ma_period"]:])
+        highest = max(d["h"] for d in data[-cfg["ma_period"]:])
 
-    trail_stop = highest - CFG["trail_atr_mult"] * current_atr
+    trail_stop = highest - cfg["trail_atr_mult"] * current_atr
 
     reasons = []
     if current["c"] < ma:
-        reasons.append(f"跌破MA{CFG['ma_period']} ({current['c']:.1f} < {ma:.1f})")
+        reasons.append(f"跌破MA{cfg['ma_period']} ({current['c']:.1f} < {ma:.1f})")
     if current["c"] < trail_stop:
         reasons.append(f"跌破跟踪止损 ({current['c']:.1f} < {trail_stop:.1f})")
 
@@ -110,6 +110,7 @@ def check_exit(data, entry_price, entry_date=None):
 def run():
     results = {}
     for name, sym in SYMBOLS.items():
+        cfg = get_config(name)
         data = fetch_daily(sym, 200)
         if len(data) < 60:
             results[name] = {"error": f"数据不足({len(data)}条)"}
@@ -131,7 +132,7 @@ def run():
                 pass
 
         if has_position and entry_price > 0:
-            exit_r = check_exit(data, entry_price, entry_date)
+            exit_r = check_exit(data, entry_price, cfg, entry_date)
             results[name] = exit_r
             if exit_r.get("exit"):
                 try:
@@ -146,7 +147,7 @@ def run():
                 except:
                     pass
         else:
-            sig = generate_signal(data)
+            sig = generate_signal(data, cfg)
             results[name] = sig
             if sig.get("signal") == 1:
                 pos = {
@@ -168,6 +169,7 @@ if __name__ == "__main__":
     print("=" * 60)
     results = run()
     for name, r in results.items():
-        print(f"\n[{name}]")
+        cfg = get_config(name)
+        print(f"\n[{name}] MA{cfg['ma_period']}/{cfg['buy_atr_mult']}/{cfg['trail_atr_mult']}")
         for k, v in r.items():
             print(f"  {k}: {v}")
