@@ -6,41 +6,13 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_engine import fetch_daily, SYMBOLS
+from indicators import atr
 
 WORKSPACE = os.path.expanduser("~/.crypto-trend/workspace")
 os.makedirs(WORKSPACE, exist_ok=True)
 
 
-def ema(data, period):
-    result = [None] * len(data)
-    if len(data) < period:
-        return result
-    mult = 2 / (period + 1)
-    result[period - 1] = sum(d["c"] for d in data[:period]) / period
-    for i in range(period, len(data)):
-        result[i] = (data[i]["c"] - result[i - 1]) * mult + result[i - 1]
-    return result
-
-
-def atr(data, period=14):
-    result = [None] * len(data)
-    trs = []
-    for i in range(1, len(data)):
-        h, l, pc = data[i]["h"], data[i]["l"], data[i - 1]["c"]
-        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
-    for i in range(period, len(data)):
-        result[i] = sum(trs[i - period:i]) / period
-    return result
-
-
 def generate_signal(data):
-    """
-    ATR趋势跟踪信号:
-    - 买入: 收盘价 > MA50 + 2*ATR  (强趋势启动)
-    - 卖出: 收盘价 < MA50  OR  收盘价 < 最高价 - 3*ATR  (趋势结束或回撤过大)
-    - 0=空仓, 1=持仓
-    返回: {signal: 1/0, entry_price, stop_loss, trail_stop, atr_val, ma50}
-    """
     n = len(data)
     if n < 50:
         return {"signal": 0, "reason": "数据不足"}
@@ -54,11 +26,9 @@ def generate_signal(data):
     current_ma50 = ma50_vals[-1] if ma50_vals else current["c"]
     current_atr = a[-1] if a[-1] else current["c"] * 0.03
 
-    # 买入条件: 价格突破 MA50 + 2*ATR + 成交量确认
     buy_trigger = current_ma50 + 2 * current_atr
     price_ok = current["c"] > buy_trigger
 
-    # 成交量确认: 放量突破才有效(避免无量假突破)
     vol_ok = True
     if len(data) >= 20:
         avg_vol = sum(d["v"] for d in data[-20:]) / 20
@@ -81,7 +51,6 @@ def generate_signal(data):
             "vol_ok": vol_ok,
         }
 
-    # 空仓中, 继续等待
     return {
         "signal": 0,
         "action": "wait",
@@ -94,8 +63,8 @@ def generate_signal(data):
     }
 
 
-def check_exit(data, entry_price):
-    """检查是否该卖出 (用于已有持仓的情况)"""
+def check_exit(data, entry_price, entry_date=None):
+    """检查是否该卖出, entry_date用于计算入场以来最高价(而非仅最近50天)"""
     n = len(data)
     if n < 50:
         return {"exit": False, "reason": "数据不足"}
@@ -105,7 +74,11 @@ def check_exit(data, entry_price):
     a = atr(data, 14)
     current_atr = a[-1] if a[-1] else data[-1]["c"] * 0.03
     current = data[-1]
-    highest = max(d["h"] for d in data[-50:])
+
+    if entry_date:
+        highest = max(d["h"] for d in data if d["date_str"] >= entry_date)
+    else:
+        highest = max(d["h"] for d in data[-50:])
 
     trail_stop = highest - 3 * current_atr
 
@@ -135,7 +108,6 @@ def check_exit(data, entry_price):
 
 
 def run():
-    """运行完整策略, 返回 {BTC: {...}, ETH: {...}}"""
     results = {}
     for name, sym in SYMBOLS.items():
         data = fetch_daily(sym, 200)
@@ -143,10 +115,10 @@ def run():
             results[name] = {"error": f"数据不足({len(data)}条)"}
             continue
 
-        # 加载持仓状态
         pos_file = os.path.join(WORKSPACE, f"position_{name}.json")
         has_position = False
         entry_price = 0
+        entry_date = None
         if os.path.exists(pos_file):
             try:
                 with open(pos_file) as f:
@@ -154,14 +126,14 @@ def run():
                 if not pos.get("exited"):
                     has_position = True
                     entry_price = pos.get("entry_price", 0)
+                    entry_date = pos.get("entry_date")
             except:
                 pass
 
         if has_position and entry_price > 0:
-            exit_r = check_exit(data, entry_price)
+            exit_r = check_exit(data, entry_price, entry_date)
             results[name] = exit_r
             if exit_r.get("exit"):
-                # 标记退出
                 try:
                     with open(pos_file) as f:
                         pos = json.load(f)
@@ -177,7 +149,6 @@ def run():
             sig = generate_signal(data)
             results[name] = sig
             if sig.get("signal") == 1:
-                # 记录持仓
                 pos = {
                     "entry_date": data[-1]["date_str"],
                     "entry_price": sig["entry_price"],

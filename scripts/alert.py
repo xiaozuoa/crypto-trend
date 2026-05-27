@@ -35,7 +35,6 @@ CFG = load_config()
 
 
 def has_action(results):
-    """检查是否有买卖信号需要通知"""
     for r in results.values():
         if r.get("signal") == 1 or r.get("exit"):
             return True
@@ -43,9 +42,7 @@ def has_action(results):
 
 
 def send_email(results):
-    """只在有买卖信号时发送邮件"""
     if not has_action(results):
-        # 检查是否超过7天没发邮件(定期确认存活)
         heartbeat_file = os.path.join(WORKSPACE, "last_email.json")
         now = datetime.now()
         send_heartbeat = False
@@ -74,10 +71,11 @@ def send_email(results):
     lines.append(f"⏰ {now.strftime('%Y年%m月%d日 %H:%M')}")
     lines.append("")
 
-    action_count = 0
+    buy_count = 0
+    sell_count = 0
     for name, r in results.items():
         if r.get("signal") == 1:
-            action_count += 1
+            buy_count += 1
             lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
             lines.append(f"  🔥 {name} 买入信号!")
             lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -90,7 +88,7 @@ def send_email(results):
             lines.append(f"  止损单: 限价${r['stop_loss']:.1f}, 触发即卖")
             lines.append("")
         elif r.get("exit"):
-            action_count += 1
+            sell_count += 1
             lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
             lines.append(f"  🔔 {name} 卖出信号!")
             lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -101,6 +99,7 @@ def send_email(results):
             lines.append("  操作: OKX交易所 → 全部卖出")
             lines.append("")
 
+    action_count = buy_count + sell_count
     if action_count == 0:
         lines.append("📊 持仓状态 (每周确认):")
         for name, r in results.items():
@@ -120,7 +119,15 @@ def send_email(results):
     lines.append("📬 有操作才发 | 每7天一次心跳确认")
 
     body = "\n".join(lines)
-    subject = "📊 持仓确认" if action_count == 0 else ("🔥 买入!" if any(r.get("signal") == 1 for r in results.values()) else "🔔 卖出!")
+
+    if buy_count > 0 and sell_count > 0:
+        subject = f"🔥 买入+🔔 卖出 ({buy_count}买{sell_count}卖)"
+    elif buy_count > 0:
+        subject = "🔥 买入!"
+    elif sell_count > 0:
+        subject = "🔔 卖出!"
+    else:
+        subject = "📊 持仓确认"
 
     try:
         msg = MIMEMultipart()
@@ -135,7 +142,6 @@ def send_email(results):
         server.quit()
         print(f"✅ 已发送 → {CFG['email_to']}")
 
-        # 记录发送时间
         with open(os.path.join(WORKSPACE, "last_email.json"), "w") as f:
             json.dump({"time": now.isoformat()}, f)
         return True

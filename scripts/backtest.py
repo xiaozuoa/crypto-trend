@@ -5,27 +5,7 @@ import os, sys, json, math
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_engine import fetch_daily_full, SYMBOLS
-
-
-def ema(data, period):
-    result = [None] * len(data)
-    if len(data) < period: return result
-    mult = 2 / (period + 1)
-    result[period - 1] = sum(d["c"] for d in data[:period]) / period
-    for i in range(period, len(data)):
-        result[i] = (data[i]["c"] - result[i - 1]) * mult + result[i - 1]
-    return result
-
-
-def atr(data, period=14):
-    result = [None] * len(data)
-    trs = []
-    for i in range(1, len(data)):
-        h, l, pc = data[i]["h"], data[i]["l"], data[i - 1]["c"]
-        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
-    for i in range(period, len(data)):
-        result[i] = sum(trs[i - period:i]) / period
-    return result
+from indicators import atr
 
 
 def backtest(data):
@@ -35,7 +15,6 @@ def backtest(data):
         return None
 
     a = atr(data, 14)
-    # 计算MA50
     ma50 = [None] * n
     for i in range(49, n):
         ma50[i] = sum(d["c"] for d in data[i - 49:i + 1]) / 50
@@ -56,7 +35,6 @@ def backtest(data):
             highest = max(highest, p)
             trail_stop = highest - 3 * atr_val
 
-            # 卖出条件
             exit_signal = False
             if p < ma: exit_signal = True
             if p < trail_stop: exit_signal = True
@@ -67,7 +45,6 @@ def backtest(data):
                 cash = position * p * 0.999
                 position = 0
         else:
-            # 买入条件: p > MA50 + 2*ATR + 成交量确认
             buy_trigger = ma + 2 * atr_val
             vol_ok = True
             if i >= 20:
@@ -75,7 +52,7 @@ def backtest(data):
                 if data[i]["v"] < avg_vol * 1.2:
                     vol_ok = False
             if p > buy_trigger and vol_ok:
-                position = (cash * 0.98) / p
+                position = (cash * 0.999) / p
                 entry_price = p
                 highest = p
                 cash = 0
@@ -85,12 +62,10 @@ def backtest(data):
         else:
             equity.append(cash)
 
-    # 最终清仓
     if position > 0:
         cash = position * data[-1]["c"] * 0.999
         equity[-1] = cash
 
-    # 统计
     total_ret = (equity[-1] / equity[0] - 1) * 100
     peak = equity[0]
     max_dd = 0
@@ -141,7 +116,9 @@ def main():
             print("  ❌ 获取失败")
             continue
 
-        d4y = [d for d in data if "2022-01-01" <= d["date_str"] <= "2026-05-26"]
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        d4y = [d for d in data if "2022-01-01" <= d["date_str"] <= today]
         print(f"  数据: {d4y[0]['date_str']} ~ {d4y[-1]['date_str']} ({len(d4y)}天)")
 
         r = backtest(d4y)
