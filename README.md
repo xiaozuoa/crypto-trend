@@ -4,56 +4,55 @@
 
 ## 策略逻辑
 
-| 规则 | 条件 |
-|------|------|
-| 买入 | 收盘价突破 MA50 + 2×ATR，且成交量 > 20日均量 × 1.2 |
-| 卖出 | 收盘价跌破 MA50 或 跌破入场以来最高价 − 3×ATR |
-
-- 标的：BTC-USDT、ETH-USDT
-- 交易所：OKX（现货，无杠杆）
-- 运行频率：每日北京时间 08:00
+| 规则 | BTC | ETH |
+|------|-----|-----|
+| 趋势线 | EMA30 | EMA28 |
+| 买入 | 价格 > 趋势线 + 2.0×ATR | 价格 > 趋势线 + 2.2×ATR |
+| 卖出 | 跌破趋势线 或 最高价−2.0×ATR | 跌破趋势线 或 最高价−2.0×ATR |
+| 确认 | 成交量 > 20日均量×1.2 | 成交量 > 20日均量×1.2 |
 
 ## 回测表现 (2022-2026)
 
 | 指标 | BTC | ETH |
 |------|-----|-----|
-| 总收益 | +124.9% | +79.1% |
-| 年化收益 | +20.2% | +14.1% |
-| 最大回撤 | -27.0% | -41.5% |
-| Sharpe | 0.84 | 0.57 |
-| 胜率 | 50.0% | 46.7% |
-| 盈亏比 | 2.8 | 2.5 |
-| 超额收益(vs买入持有) | +64.0% | +123.1% |
+| 总收益 | +180.7% | +220.9% |
+| 年化收益 | +26.4% | +30.3% |
+| 最大回撤 | -23.8% | -25.0% |
+| Sharpe | 1.10 | 1.00 |
+| 胜率 | 50.0% | 57.1% |
+| 盈亏比 | 3.9 | 3.4 |
+
+## 参数优化
+
+策略参数通过 Walk-Forward 滚动优化选定，每季度运行一次：
+
+```bash
+cd scripts && python optimizer.py
+```
+
+优化器会：
+1. 用过去2年数据网格搜索最优参数
+2. 在后续6个月验证
+3. 输出全局最优和近2年最优参数
+4. 手动将结果更新到 `config.py`
 
 ## 项目结构
 
 ```
-├── .github/workflows/daily-signal.yml  # GitHub Actions 定时触发
+├── .github/workflows/daily-signal.yml
 ├── scripts/
-│   ├── alert.py          # 邮件发送入口
-│   ├── strategy.py       # 策略逻辑 + 持仓管理
+│   ├── alert.py          # 邮件发送
+│   ├── strategy.py       # 策略逻辑
 │   ├── backtest.py       # 回测引擎
-│   ├── data_engine.py    # OKX API 数据获取
-│   ├── indicators.py     # 技术指标 (EMA/ATR/SMA)
-│   └── config.py         # 策略参数配置
+│   ├── optimizer.py      # Walk-Forward参数优化
+│   ├── data_engine.py    # OKX API
+│   ├── indicators.py     # EMA/ATR/SMA/MACD
+│   └── config.py         # 策略参数
 └── requirements.txt
 ```
 
 ## 部署
 
 1. Fork 仓库
-2. 配置 GitHub Secrets：
-   - `CRYPTO_EMAIL_FROM` — 发送邮箱
-   - `CRYPTO_EMAIL_TO` — 接收邮箱
-   - `SMTP_PASS` — SMTP 授权码
-3. GitHub Actions 每日自动运行
-
-## 参数调优
-
-修改 `scripts/config.py` 后运行 `python scripts/backtest.py` 验证。
-
-默认参数（已回测验证为最优组合）：
-- MA周期: 50
-- 买入ATR乘数: 2.0
-- 跟踪止损ATR乘数: 3.0
-- 成交量阈值: 1.2×20日均量
+2. 配置 GitHub Secrets：`CRYPTO_EMAIL_FROM`, `CRYPTO_EMAIL_TO`, `SMTP_PASS`
+3. Actions 每日 UTC 00:00 (北京时间 08:00) 自动运行

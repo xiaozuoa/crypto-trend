@@ -112,8 +112,8 @@ def send_email(results):
 
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append("  ATR趋势跟踪 | BTC+ETH | OKX")
-    lines.append(f"  策略: EMA30+2×ATR买入, 跌破EMA30或2×ATR跟踪止损卖出")
-    lines.append(f"  历史: 2022-2026 BTC+181% ETH+206%")
+    lines.append(f"  策略: EMA30/28+ATR买入, 跌破EMA或ATR跟踪止损")
+    lines.append(f"  历史: 2022-2026 BTC+181% ETH+221%")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append("")
     lines.append("📬 有操作才发 | 每7天一次心跳确认")
