@@ -7,6 +7,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_engine import fetch_daily, SYMBOLS
 from indicators import atr
+from config import STRATEGY as CFG
 
 WORKSPACE = os.path.expanduser("~/.crypto-trend/workspace")
 os.makedirs(WORKSPACE, exist_ok=True)
@@ -14,30 +15,30 @@ os.makedirs(WORKSPACE, exist_ok=True)
 
 def generate_signal(data):
     n = len(data)
-    if n < 50:
+    if n < CFG["ma_period"]:
         return {"signal": 0, "reason": "数据不足"}
 
-    ma50_vals = []
-    for i in range(49, n):
-        ma50_vals.append(sum(d["c"] for d in data[i - 49:i + 1]) / 50)
+    ma_vals = []
+    for i in range(CFG["ma_period"] - 1, n):
+        ma_vals.append(sum(d["c"] for d in data[i - CFG["ma_period"] + 1:i + 1]) / CFG["ma_period"])
 
-    a = atr(data, 14)
+    a = atr(data, CFG["atr_period"])
     current = data[-1]
-    current_ma50 = ma50_vals[-1] if ma50_vals else current["c"]
+    current_ma = ma_vals[-1] if ma_vals else current["c"]
     current_atr = a[-1] if a[-1] else current["c"] * 0.03
 
-    buy_trigger = current_ma50 + 2 * current_atr
+    buy_trigger = current_ma + CFG["buy_atr_mult"] * current_atr
     price_ok = current["c"] > buy_trigger
 
     vol_ok = True
-    if len(data) >= 20:
-        avg_vol = sum(d["v"] for d in data[-20:]) / 20
-        if data[-1]["v"] < avg_vol * 1.2:
+    if len(data) >= CFG["vol_lookback"]:
+        avg_vol = sum(d["v"] for d in data[-CFG["vol_lookback"]:]) / CFG["vol_lookback"]
+        if data[-1]["v"] < avg_vol * CFG["vol_threshold"]:
             vol_ok = False
 
     if price_ok and vol_ok:
-        stop_loss = current_ma50
-        trail_stop = current["c"] - 3 * current_atr
+        stop_loss = current_ma
+        trail_stop = current["c"] - CFG["trail_atr_mult"] * current_atr
         return {
             "signal": 1,
             "action": "buy",
@@ -46,7 +47,7 @@ def generate_signal(data):
             "trail_stop": round(trail_stop, 2),
             "atr": round(current_atr, 2),
             "atr_pct": round(current_atr / current["c"] * 100, 2),
-            "ma50": round(current_ma50, 2),
+            "ma": round(current_ma, 2),
             "date": current["date_str"],
             "vol_ok": vol_ok,
         }
@@ -55,7 +56,7 @@ def generate_signal(data):
         "signal": 0,
         "action": "wait",
         "price": round(current["c"], 2),
-        "ma50": round(current_ma50, 2),
+        "ma": round(current_ma, 2),
         "buy_trigger": round(buy_trigger, 2),
         "atr": round(current_atr, 2),
         "date": current["date_str"],
@@ -64,27 +65,26 @@ def generate_signal(data):
 
 
 def check_exit(data, entry_price, entry_date=None):
-    """检查是否该卖出, entry_date用于计算入场以来最高价(而非仅最近50天)"""
     n = len(data)
-    if n < 50:
+    if n < CFG["ma_period"]:
         return {"exit": False, "reason": "数据不足"}
 
-    closes = [d["c"] for d in data[-50:]]
-    ma50 = sum(closes) / 50
-    a = atr(data, 14)
+    closes = [d["c"] for d in data[-CFG["ma_period"]:]]
+    ma = sum(closes) / CFG["ma_period"]
+    a = atr(data, CFG["atr_period"])
     current_atr = a[-1] if a[-1] else data[-1]["c"] * 0.03
     current = data[-1]
 
     if entry_date:
         highest = max(d["h"] for d in data if d["date_str"] >= entry_date)
     else:
-        highest = max(d["h"] for d in data[-50:])
+        highest = max(d["h"] for d in data[-CFG["ma_period"]:])
 
-    trail_stop = highest - 3 * current_atr
+    trail_stop = highest - CFG["trail_atr_mult"] * current_atr
 
     reasons = []
-    if current["c"] < ma50:
-        reasons.append(f"跌破MA50 ({current['c']:.1f} < {ma50:.1f})")
+    if current["c"] < ma:
+        reasons.append(f"跌破MA{CFG['ma_period']} ({current['c']:.1f} < {ma:.1f})")
     if current["c"] < trail_stop:
         reasons.append(f"跌破跟踪止损 ({current['c']:.1f} < {trail_stop:.1f})")
 
@@ -101,7 +101,7 @@ def check_exit(data, entry_price, entry_date=None):
     return {
         "exit": False,
         "trail_stop": round(trail_stop, 2),
-        "ma50": round(ma50, 2),
+        "ma": round(ma, 2),
         "current": round(current["c"], 2),
         "date": current["date_str"],
     }
