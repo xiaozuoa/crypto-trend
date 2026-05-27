@@ -1,26 +1,27 @@
 #!/usr/bin/env python3
-"""ATR趋势回测 — BTC/ETH 2022-2026 — 支持分币种参数"""
+"""ATR趋势回测 — BTC/ETH 2022-2026 — 支持EMA/SMA + 分币种参数"""
 
 import os, sys, json, math
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_engine import fetch_daily_full, SYMBOLS
-from indicators import atr
+from indicators import atr, ema, sma
 from config import get_config, BACKTEST
 
 
 def backtest(data, cfg, verbose=False):
     n = len(data)
-    if n < 60:
+    ma_p = cfg["ma_period"]
+    if n < ma_p + 14:
         return None
 
-    ma_p = cfg["ma_period"]
-    a = atr(data, cfg["atr_period"])
+    if cfg.get("ma_type") == "ema":
+        ma_vals = ema(data, ma_p)
+    else:
+        ma_vals = sma(data, ma_p)
 
-    ma_vals = [None] * n
-    for i in range(ma_p - 1, n):
-        ma_vals[i] = sum(d["c"] for d in data[i - ma_p + 1:i + 1]) / ma_p
+    a = atr(data, cfg["atr_period"])
 
     cash = cfg["initial_capital"]
     position = 0
@@ -45,10 +46,10 @@ def backtest(data, cfg, verbose=False):
             exit_reason = ""
             if p < ma_val:
                 exit_signal = True
-                exit_reason = f"跌破MA{ma_p}"
+                exit_reason = f"跌破{cfg['ma_type'].upper()}{ma_p}"
             if p < trail_stop:
                 exit_signal = True
-                exit_reason = f"跌破跟踪止损"
+                exit_reason = "跌破跟踪止损"
 
             if exit_signal:
                 profit = (p - entry_price) / entry_price * 100
@@ -59,7 +60,6 @@ def backtest(data, cfg, verbose=False):
                     "exit_price": round(p, 2),
                     "profit_pct": round(profit, 2),
                     "reason": exit_reason,
-                    "bars": 0,
                 })
                 cash = position * p * fee_mult
                 position = 0
@@ -86,17 +86,20 @@ def backtest(data, cfg, verbose=False):
     if position > 0:
         cash = position * data[-1]["c"] * fee_mult
         equity[-1] = cash
-        trades[-1]["exit_date"] = data[-1]["date_str"] + "(强平)"
-        trades[-1]["exit_price"] = round(data[-1]["c"], 2)
-        trades[-1]["profit_pct"] = round((data[-1]["c"] - entry_price) / entry_price * 100, 2)
+        if trades:
+            trades[-1]["exit_date"] = data[-1]["date_str"] + "(强平)"
+            trades[-1]["exit_price"] = round(data[-1]["c"], 2)
+            trades[-1]["profit_pct"] = round((data[-1]["c"] - entry_price) / entry_price * 100, 2)
 
     total_ret = (equity[-1] / equity[0] - 1) * 100
     peak = equity[0]
     max_dd = 0
     for v in equity:
+        if v > peak:
+            peak = v
         dd = (v - peak) / peak * 100
-        if v > peak: peak = v; dd = 0
-        if dd < max_dd: max_dd = dd
+        if dd < max_dd:
+            max_dd = dd
 
     years = len(data) / 365
     annual_ret = ((equity[-1] / equity[0]) ** (1 / max(years, 0.5)) - 1) * 100 if equity[-1] > 0 else 0
@@ -139,12 +142,13 @@ def backtest(data, cfg, verbose=False):
 
 def main():
     print("=" * 80)
-    print("ATR趋势跟踪 — 完整回测 (分币种参数)")
+    print("ATR趋势跟踪 — 完整回测")
     print("=" * 80)
 
     for name, sym in SYMBOLS.items():
         cfg = get_config(name)
-        print(f"\n[{name}] 参数: MA{cfg['ma_period']}/{cfg['buy_atr_mult']}/{cfg['trail_atr_mult']}  手续费: {cfg['fee_rate']*100:.1f}%")
+        ma_label = f"{cfg['ma_type'].upper()}{cfg['ma_period']}"
+        print(f"\n[{name}] {ma_label}  buy={cfg['buy_atr_mult']} trail={cfg['trail_atr_mult']}  fee={cfg['fee_rate']*100:.1f}%")
         print(f"  获取全量数据...")
         data = fetch_daily_full(sym)
         if not data:
@@ -170,7 +174,8 @@ def main():
         years = (datetime.strptime(d4y[-1]["date_str"], "%Y-%m-%d") - datetime.strptime(d4y[0]["date_str"], "%Y-%m-%d")).days / 365.25
         if years > 0:
             print(f"  年交易: {r['trades']/years:.0f}笔")
-        print(f"  盈亏比: {r['avg_win']/abs(r['avg_loss']):.1f}" if r.get('avg_loss') and r['avg_loss'] != 0 else "")
+        if r.get('avg_loss') and r['avg_loss'] != 0:
+            print(f"  盈亏比: {r['avg_win']/abs(r['avg_loss']):.1f}")
 
 
 if __name__ == "__main__":

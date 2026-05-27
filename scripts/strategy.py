@@ -1,30 +1,35 @@
 #!/usr/bin/env python3
-"""ATR趋势跟踪策略 — 日线, BTC/ETH, 无杠杆 — 支持分币种参数"""
+"""ATR趋势跟踪策略 — EMA30日线 + ATR突破, BTC/ETH, 无杠杆"""
 
 import os, sys, json, math
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_engine import fetch_daily, SYMBOLS
-from indicators import atr
+from indicators import atr, ema, sma
 from config import get_config
 
 WORKSPACE = os.path.expanduser("~/.crypto-trend/workspace")
 os.makedirs(WORKSPACE, exist_ok=True)
 
 
+def get_ma(data, cfg):
+    """根据配置返回EMA或SMA序列"""
+    if cfg.get("ma_type") == "ema":
+        return ema(data, cfg["ma_period"])
+    return sma(data, cfg["ma_period"])
+
+
 def generate_signal(data, cfg):
     n = len(data)
-    if n < cfg["ma_period"]:
+    ma_p = cfg["ma_period"]
+    if n < ma_p:
         return {"signal": 0, "reason": "数据不足"}
 
-    ma_vals = []
-    for i in range(cfg["ma_period"] - 1, n):
-        ma_vals.append(sum(d["c"] for d in data[i - cfg["ma_period"] + 1:i + 1]) / cfg["ma_period"])
-
+    ma_vals = get_ma(data, cfg)
     a = atr(data, cfg["atr_period"])
     current = data[-1]
-    current_ma = ma_vals[-1] if ma_vals else current["c"]
+    current_ma = ma_vals[-1] if ma_vals[-1] else current["c"]
     current_atr = a[-1] if a[-1] else current["c"] * 0.03
 
     buy_trigger = current_ma + cfg["buy_atr_mult"] * current_atr
@@ -66,11 +71,12 @@ def generate_signal(data, cfg):
 
 def check_exit(data, entry_price, cfg, entry_date=None):
     n = len(data)
-    if n < cfg["ma_period"]:
+    ma_p = cfg["ma_period"]
+    if n < ma_p:
         return {"exit": False, "reason": "数据不足"}
 
-    closes = [d["c"] for d in data[-cfg["ma_period"]:]]
-    ma = sum(closes) / cfg["ma_period"]
+    ma_vals = get_ma(data, cfg)
+    current_ma = ma_vals[-1] if ma_vals[-1] else data[-1]["c"]
     a = atr(data, cfg["atr_period"])
     current_atr = a[-1] if a[-1] else data[-1]["c"] * 0.03
     current = data[-1]
@@ -78,13 +84,14 @@ def check_exit(data, entry_price, cfg, entry_date=None):
     if entry_date:
         highest = max(d["h"] for d in data if d["date_str"] >= entry_date)
     else:
-        highest = max(d["h"] for d in data[-cfg["ma_period"]:])
+        highest = max(d["h"] for d in data[-ma_p:])
 
     trail_stop = highest - cfg["trail_atr_mult"] * current_atr
 
     reasons = []
-    if current["c"] < ma:
-        reasons.append(f"跌破MA{cfg['ma_period']} ({current['c']:.1f} < {ma:.1f})")
+    ma_type = cfg.get("ma_type", "MA").upper()
+    if current["c"] < current_ma:
+        reasons.append(f"跌破{ma_type}{ma_p} ({current['c']:.1f} < {current_ma:.1f})")
     if current["c"] < trail_stop:
         reasons.append(f"跌破跟踪止损 ({current['c']:.1f} < {trail_stop:.1f})")
 
@@ -101,7 +108,7 @@ def check_exit(data, entry_price, cfg, entry_date=None):
     return {
         "exit": False,
         "trail_stop": round(trail_stop, 2),
-        "ma": round(ma, 2),
+        "ma": round(current_ma, 2),
         "current": round(current["c"], 2),
         "date": current["date_str"],
     }
@@ -170,6 +177,7 @@ if __name__ == "__main__":
     results = run()
     for name, r in results.items():
         cfg = get_config(name)
-        print(f"\n[{name}] MA{cfg['ma_period']}/{cfg['buy_atr_mult']}/{cfg['trail_atr_mult']}")
+        ma_label = f"{cfg['ma_type'].upper()}{cfg['ma_period']}"
+        print(f"\n[{name}] {ma_label} buy={cfg['buy_atr_mult']} trail={cfg['trail_atr_mult']}")
         for k, v in r.items():
             print(f"  {k}: {v}")

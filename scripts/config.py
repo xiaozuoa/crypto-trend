@@ -1,27 +1,21 @@
 """策略参数配置 — 支持统一配置和分币种覆盖"""
 
 STRATEGY = {
-    # 默认参数 (所有币种共用)
-    "ma_period": 50,
-    "atr_period": 14,
-    "buy_atr_mult": 2.0,
-    "trail_atr_mult": 3.0,
-    "vol_lookback": 20,
-    "vol_threshold": 1.2,
-    "fee_rate": 0.001,
-    "initial_capital": 10000,
+    # 核心参数
+    "ma_type": "ema",          # 均线类型: sma 或 ema
+    "ma_period": 30,           # 均线周期 (EMA30 ≈ 1.5月趋势)
+    "atr_period": 14,          # ATR周期
+    "buy_atr_mult": 2.0,       # 买入: 价格突破 MA + N×ATR
+    "trail_atr_mult": 2.0,     # 跟踪止损: 最高价 - N×ATR
+    "vol_lookback": 20,        # 成交量均值回看天数
+    "vol_threshold": 1.2,      # 成交量确认: 当日量 > 均量×N
+    "fee_rate": 0.001,         # 手续费率 (0.1%)
+    "initial_capital": 10000,  # 回测初始资金
 }
 
-# 分币种覆盖 (只写与默认不同的参数)
+# 分币种覆盖 (只写与默认不同的参数, 当前EMA30已是最优统一配置)
 PER_SYMBOL = {
-    "BTC": {
-        "buy_atr_mult": 1.5,   # BTC趋势强, 更敏感的入场
-    },
-    "ETH": {
-        "ma_period": 40,        # ETH波动大, 更短均线
-        "buy_atr_mult": 1.5,
-        "trail_atr_mult": 2.5,  # ETH回撤更快, 更紧的跟踪止损
-    },
+    # BTC和ETH都使用EMA30, 无需覆盖
 }
 
 BACKTEST = {
