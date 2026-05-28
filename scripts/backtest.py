@@ -33,7 +33,8 @@ def backtest(data, cfg, verbose=False):
 
     fee_mult = 1 - cfg["fee_rate"]
 
-    for i in range(ma_p, n):
+    warmup = max(ma_p, cfg["atr_period"])
+    for i in range(warmup, n):
         p = data[i]["c"]
         atr_val = a[i] if a[i] is not None else p * 0.03
         ma_val = ma_vals[i] if ma_vals[i] is not None else p
@@ -66,7 +67,7 @@ def backtest(data, cfg, verbose=False):
                 entry_date = ""
         elif p > ma_val + cfg["buy_atr_mult"] * atr_val:
             vol_ok = True
-            if i >= cfg["vol_lookback"]:
+            if i >= max(warmup, cfg["vol_lookback"]):
                 avg_vol = sum(d["v"] for d in data[i - cfg["vol_lookback"]:i]) / cfg["vol_lookback"]
                 if data[i]["v"] < avg_vol * cfg["vol_threshold"]:
                     vol_ok = False

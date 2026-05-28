@@ -32,8 +32,8 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
             continue
         p = data[i]['c']
         last_p = p
-        av = a[i] if a[i] else p * 0.03
-        tv = t[i] if t[i] else p
+        av = a[i] if a[i] is not None else p * 0.03
+        tv = t[i] if t[i] is not None else p
         if pos > 0:
             hi = max(hi, data[i]['h'])
             if p < tv or p < hi - trail_m * av:
