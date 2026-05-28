@@ -12,13 +12,12 @@ STRATEGY = {
     "initial_capital": 10000,
 }
 
-# 分币种覆盖 (基于Walk-Forward全局最优, 2026-05-28重新优化)
+# 分币种覆盖
 PER_SYMBOL = {
     "BTC": {
-        # EMA30 buy=2.0 trail=2.0 — 全局最优, 保持不变
+        # EMA30 buy=2.0 trail=2.0
     },
     "ETH": {
-        "ma_period": 28,         # EMA28 — 全局最优(+326% vs EMA30 +264%)
         "buy_atr_mult": 2.2,     # 稍宽的入场过滤ETH高波动
     },
 }

@@ -37,7 +37,7 @@ def generate_signal(data, cfg):
 
     vol_ok = True
     if len(data) >= cfg["vol_lookback"]:
-        avg_vol = sum(d["v"] for d in data[-cfg["vol_lookback"]:]) / cfg["vol_lookback"]
+        avg_vol = sum(d["v"] for d in data[-cfg["vol_lookback"]-1:-1]) / cfg["vol_lookback"]
         if data[-1]["v"] < avg_vol * cfg["vol_threshold"]:
             vol_ok = False
 

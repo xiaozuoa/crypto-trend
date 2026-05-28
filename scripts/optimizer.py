@@ -4,19 +4,27 @@
 import sys, os, json, math
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_engine import fetch_daily_full, SYMBOLS
-from indicators import ema, atr
+from indicators import ema, atr, sma
+from config import STRATEGY
 from datetime import datetime, timedelta
 
 
-def backtest_range(data, start_date, end_date, period, buy_m, trail_m):
+def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None):
     """在指定日期范围内回测, 返回总收益%"""
+    if cfg is None:
+        cfg = STRATEGY
     n = len(data)
-    if n < period + 14:
+    atr_p = cfg["atr_period"]
+    if n < period + atr_p:
         return None
-    t = ema(data, period)
-    a = atr(data, 14)
+    ma_fn = ema if cfg.get("ma_type") == "ema" else sma
+    t = ma_fn(data, period)
+    a = atr(data, atr_p)
+    vol_lb = cfg["vol_lookback"]
+    vol_th = cfg["vol_threshold"]
+    fee = 1 - cfg["fee_rate"]
     cash, pos, ep, hi = 10000.0, 0.0, 0.0, 0.0
-    for i in range(period + 14, n):
+    for i in range(period + atr_p, n):
         if start_date and data[i]['date_str'] < start_date:
             continue
         if end_date and data[i]['date_str'] >= end_date:
@@ -25,22 +33,22 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m):
         av = a[i] if a[i] else p * 0.03
         tv = t[i] if t[i] else p
         if pos > 0:
-            hi = max(hi, p)
+            hi = max(hi, data[i]['h'])
             if p < tv or p < hi - trail_m * av:
-                cash += pos * p * 0.999
+                cash += pos * p * fee
                 pos = 0.0
         elif p > tv + buy_m * av:
                 vo = True
-                if i >= 20:
-                    avg_vol = sum(d['v'] for d in data[i-20:i]) / 20
-                    if data[i]['v'] < avg_vol * 1.2:
+                if i >= vol_lb:
+                    avg_vol = sum(d['v'] for d in data[i-vol_lb:i]) / vol_lb
+                    if data[i]['v'] < avg_vol * vol_th:
                         vo = False
                 if vo:
-                    alloc = cash * 0.999
-                    pos, ep, hi = alloc / p, p, p
+                    alloc = cash * fee
+                    pos, ep, hi = alloc / p, p, data[i]['h']
                     cash -= alloc
     if pos > 0:
-        cash += pos * data[-1]['c'] * 0.999
+        cash += pos * data[-1]['c'] * fee
     return (cash / 10000 - 1) * 100
 
 
@@ -137,15 +145,7 @@ def main():
             last = windows[-1]
             print(f'  当前最优: EMA{last["period"]} buy={last["buy_atr"]} trail={last["trail_atr"]}')
 
-        # Also run full grid on all data to find global best
-        print(f'  全局最优搜索...')
-        global_params, global_ret = grid_search(data)
-        print(f'  全局最优: EMA{global_params[0]} buy={global_params[1]} trail={global_params[2]} ({global_ret:+.1f}%)')
-
-        # Also run grid on last 2 years to find recent best
-        two_years_ago = (datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d')
-        recent_params, recent_ret = grid_search(data, start_date=two_years_ago)
-        print(f'  近2年最优: EMA{recent_params[0]} buy={recent_params[1]} trail={recent_params[2]} ({recent_ret:+.1f}%)')
+        # Walk-Forward chosen params only; no full-dataset grid search to avoid overfitting
 
     print()
     print('=' * 70)

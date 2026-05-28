@@ -39,7 +39,7 @@ def backtest(data, cfg, verbose=False):
         ma_val = ma_vals[i] if ma_vals[i] else p
 
         if position > 0:
-            highest = max(highest, p)
+            highest = max(highest, data[i]["h"])
             trail_stop = highest - cfg["trail_atr_mult"] * atr_val
 
             exit_signal = False
@@ -68,7 +68,7 @@ def backtest(data, cfg, verbose=False):
             # 买入条件: p > MA + buy_atr_mult*ATR + 成交量确认
             vol_ok = True
             if i >= cfg["vol_lookback"]:
-                avg_vol = sum(d["v"] for d in data[i - cfg["vol_lookback"] + 1:i + 1]) / cfg["vol_lookback"]
+                avg_vol = sum(d["v"] for d in data[i - cfg["vol_lookback"]:i]) / cfg["vol_lookback"]
                 if data[i]["v"] < avg_vol * cfg["vol_threshold"]:
                     vol_ok = False
             if vol_ok:
@@ -84,12 +84,17 @@ def backtest(data, cfg, verbose=False):
             equity.append(cash)
 
     if position > 0:
+        profit = (data[-1]["c"] - entry_price) / entry_price * 100
+        trades.append({
+            "entry_date": entry_date,
+            "exit_date": data[-1]["date_str"] + "(强平)",
+            "entry_price": round(entry_price, 2),
+            "exit_price": round(data[-1]["c"], 2),
+            "profit_pct": round(profit, 2),
+            "reason": "回测结束强平",
+        })
         cash = position * data[-1]["c"] * fee_mult
         equity[-1] = cash
-        if trades:
-            trades[-1]["exit_date"] = data[-1]["date_str"] + "(强平)"
-            trades[-1]["exit_price"] = round(data[-1]["c"], 2)
-            trades[-1]["profit_pct"] = round((data[-1]["c"] - entry_price) / entry_price * 100, 2)
 
     total_ret = (equity[-1] / equity[0] - 1) * 100
     peak = equity[0]
