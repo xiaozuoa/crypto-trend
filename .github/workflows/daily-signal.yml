@@ -40,6 +40,7 @@ jobs:
           python alert.py
 
       - name: Save position cache
+        continue-on-error: true  # 缓存失败不阻断流程，下次运行从空仓开始
         uses: actions/cache/save@v4
         with:
           path: ~/.crypto-trend/workspace

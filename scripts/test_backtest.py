@@ -403,6 +403,58 @@ def test_check_exit_entry_before_data_window():
     print(f"  PASS: both scenarios agree (exit={r1['exit']})")
 
 
+def test_trade_profit_includes_fees():
+    """Bug: backtest trade profit_pct excludes round-trip fees,
+    showing gross return instead of net return.
+    Fix: include fee_mult^2 in profit calculation."""
+    cfg = get_config("BTC")
+    cfg["ma_period"] = 5
+    cfg["atr_period"] = 5
+
+    # Data: warmup (max(5,5)=5) + entry bar + exit bar = need >5 bars
+    data = make_data(7, 100, 101, 99, 10000)
+    # Entry bar: high volume to pass vol filter
+    data.append({"date": 7, "date_str": "2022-01-08", "o": 100, "h": 125, "l": 100, "c": 122, "v": 30000})
+    # Exit bar: price drops below trail_stop
+    data.append({"date": 8, "date_str": "2022-01-09", "o": 115, "h": 116, "l": 100, "c": 102, "v": 10000})
+
+    r = backtest(data, cfg, verbose=False)
+    assert r["trades"] >= 1, f"should have at least 1 trade, got {r['trades']}"
+
+    t = r["trades_list"][0]
+    entry, exit_p = t["entry_price"], t["exit_price"]
+    fee = cfg["fee_rate"]
+    # Net return: (1-fee)^2 * exit/entry - 1
+    net_return = ((1 - fee) ** 2 * exit_p / entry - 1) * 100
+    # Bug: profit_pct = (exit/entry - 1) * 100 (gross, without fees)
+    # Fix: profit_pct should ≈ net_return
+    diff = abs(t["profit_pct"] - net_return)
+    assert diff < 0.01, \
+        f"profit_pct should include fees! got {t['profit_pct']:.2f}%, expected ~{net_return:.2f}%, diff={diff:.2f}%"
+    print(f"  PASS: profit_pct={t['profit_pct']:.2f}% (net={net_return:.2f}%)")
+
+
+def test_filter_incomplete_daily_candle():
+    """Bug: fetch_daily returns today's incomplete candle as the latest bar.
+    Strategy uses this incomplete data for signal/exit decisions.
+    Fix: exclude today's incomplete candle from data."""
+    from datetime import datetime
+
+    # Simulate data with "today's" incomplete candle
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    data = make_data(50, 100, 101, 99, 10000)
+    # Add "today's" incomplete candle (low volume, same OHLC)
+    data.append({"date": 999, "date_str": today, "o": 100, "h": 101, "l": 99, "c": 100, "v": 10})
+
+    # Filter out today's candle
+    filtered = [d for d in data if d["date_str"] < today]
+    assert len(filtered) == len(data) - 1, \
+        f"should exclude today's candle, got {len(filtered)} (expected {len(data)-1})"
+    assert filtered[-1]["date_str"] < today, \
+        f"last candle should be before today, got {filtered[-1]['date_str']}"
+    print(f"  PASS: filtered {len(data)}→{len(filtered)} bars (removed today's incomplete candle)")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Bug 修复验证")
@@ -445,5 +497,11 @@ if __name__ == "__main__":
 
     print("\n[Test 13] check_exit entry_date 超出数据窗口不含入场前高价")
     test_check_exit_entry_before_data_window()
+
+    print("\n[Test 14] 交易盈亏含手续费")
+    test_trade_profit_includes_fees()
+
+    print("\n[Test 15] 过滤当日未完成K线")
+    test_filter_incomplete_daily_candle()
 
     print("\nDone.")

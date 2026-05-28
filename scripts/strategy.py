@@ -124,6 +124,9 @@ def run():
     for name, sym in SYMBOLS.items():
         cfg = get_config(name)
         data = fetch_daily(sym, 200)
+        # Exclude today's incomplete daily candle
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        data = [d for d in data if d["date_str"] < today_str]
         if len(data) < 60:
             results[name] = {"error": f"数据不足({len(data)}条)"}
             continue

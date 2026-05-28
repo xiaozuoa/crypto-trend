@@ -53,7 +53,7 @@ def backtest(data, cfg, verbose=False):
                 exit_reasons.append("跌破跟踪止损")
 
             if exit_signal:
-                profit = (p - entry_price) / entry_price * 100
+                profit = (p * fee_mult * fee_mult / entry_price - 1) * 100
                 trades.append({
                     "entry_date": entry_date,
                     "exit_date": data[i]["date_str"],
@@ -84,7 +84,7 @@ def backtest(data, cfg, verbose=False):
             equity.append(cash)
 
     if position > 0:
-        profit = (data[-1]["c"] - entry_price) / entry_price * 100
+        profit = (data[-1]["c"] * fee_mult * fee_mult / entry_price - 1) * 100
         trades.append({
             "entry_date": entry_date,
             "exit_date": data[-1]["date_str"] + "(强平)",
