@@ -41,7 +41,7 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
                 pos = 0.0
         elif p > tv + buy_m * av:
                 vo = True
-                if i >= vol_lb:
+                if i >= max(warmup, vol_lb):
                     avg_vol = sum(d['v'] for d in data[i-vol_lb:i]) / vol_lb
                     if data[i]['v'] < avg_vol * vol_th:
                         vo = False

@@ -147,6 +147,8 @@ def run():
                     os.remove(pos_file)
                 except:
                     pass
+        elif has_position:
+            results[name] = {"error": f"仓位文件损坏(entry_price=0), 跳过, 请手动检查OKX持仓"}
         else:
             sig = generate_signal(data, cfg)
             results[name] = sig
