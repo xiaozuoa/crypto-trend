@@ -14,7 +14,7 @@ SYMBOLS = {"BTC": "BTC-USDT", "ETH": "ETH-USDT"}
 def _valid_candle(c):
     """校验K线数据: high>=low, 价格为正值, 成交量非负"""
     o, h, l, cl, v = float(c[1]), float(c[2]), float(c[3]), float(c[4]), float(c[5])
-    if h < l or cl <= 0 or h <= 0 or v < 0:
+    if h < l or o <= 0 or l <= 0 or cl <= 0 or h <= 0 or v < 0:
         return None
     return (o, h, l, cl, v)
 

@@ -73,12 +73,12 @@ def backtest(data, cfg, verbose=False):
             if vol_ok:
                 position = (cash * fee_mult) / p
                 entry_price = p
-                highest = p
+                highest = data[i]["h"]
                 entry_date = data[i]["date_str"]
                 cash = 0
 
         if position > 0:
-            equity.append(position * p * fee_mult)
+            equity.append(position * p)
         else:
             equity.append(cash)
 
@@ -107,7 +107,7 @@ def backtest(data, cfg, verbose=False):
 
     years = len(data) / 365
     annual_ret = ((equity[-1] / equity[0]) ** (1 / max(years, 0.5)) - 1) * 100 if equity[-1] > 0 else 0
-    daily_r = [(equity[i] / equity[i - 1] - 1) for i in range(1, len(equity)) if equity[i - 1] > 0]
+    daily_r = [(equity[i] / equity[i - 1] - 1) for i in range(2, len(equity)) if equity[i - 1] > 0]
     if daily_r:
         avg = sum(daily_r) / len(daily_r)
         std = (sum((r - avg) ** 2 for r in daily_r) / len(daily_r)) ** 0.5
@@ -132,6 +132,8 @@ def backtest(data, cfg, verbose=False):
         "avg_loss": round(avg_loss, 1) if avg_loss else 0,
         "buy_hold": round(bh, 1),
         "excess": round(total_ret - bh, 1),
+        "trades_list": trades,
+        "equity_curve": equity,
     }
 
     if verbose and trades:
@@ -171,6 +173,8 @@ def main():
         print(f"\n  {'指标':<16} {'数值':>10}")
         print(f"  {'-'*16} {'-'*10}")
         for k, v in r.items():
+            if k in ("trades_list", "equity_curve"):
+                continue
             if isinstance(v, float):
                 print(f"  {k:<16} {v:>+9.1f}%")
             else:

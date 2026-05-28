@@ -47,7 +47,7 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
                         vo = False
                 if vo:
                     pos = (cash * fee) / p
-                    ep, hi = p, data[i]['h']
+                    hi = data[i]['h']
                     cash = 0.0
     if pos > 0:
         cash = pos * last_p * fee
@@ -137,10 +137,12 @@ def main():
         # Walk-forward
         windows = walk_forward_optimize(data)
         print(f'  Walk-Forward windows: {len(windows)}')
-        total_test_ret = 0
+        compound = 1.0
         for w in windows:
             print(f'    {w["train_start"]}~{w["train_end"]} -> {w["test_start"]}~{w["test_end"]}: EMA{w["period"]} buy={w["buy_atr"]} trail={w["trail_atr"]} test={w["test_return"]:+.1f}%')
-            total_test_ret += w['test_return']
+            compound *= (1 + w['test_return'] / 100)
+        total_test_ret = (compound - 1) * 100
+        print(f'  WF累计(复利): {total_test_ret:+.1f}%')
 
         # Best params from last window (for current use)
         if windows:

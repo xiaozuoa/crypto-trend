@@ -43,7 +43,7 @@ def generate_signal(data, cfg):
 
     if price_ok and vol_ok:
         stop_loss = current_ma
-        trail_stop = current["c"] - cfg["trail_atr_mult"] * current_atr
+        trail_stop = current["h"] - cfg["trail_atr_mult"] * current_atr
         return {
             "signal": 1,
             "action": "buy",
@@ -144,14 +144,7 @@ def run():
             results[name] = exit_r
             if exit_r.get("exit"):
                 try:
-                    with open(pos_file) as f:
-                        pos = json.load(f)
-                    pos["exited"] = True
-                    pos["exit_date"] = data[-1]["date_str"]
-                    pos["exit_price"] = exit_r["exit_price"]
-                    pos["profit_pct"] = exit_r["profit_pct"]
-                    with open(pos_file, "w") as f:
-                        json.dump(pos, f, ensure_ascii=False, indent=2)
+                    os.remove(pos_file)
                 except:
                     pass
         else:

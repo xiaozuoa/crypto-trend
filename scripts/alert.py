@@ -80,12 +80,12 @@ def send_email(results):
             lines.append(f"  🔥 {name} 买入信号!")
             lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
             lines.append(f"  入场价:   ${r['entry_price']:.1f}")
-            lines.append(f"  止损(MA): ${r['stop_loss']:.1f}")
+            lines.append(f"  MA(动态):  ${r['stop_loss']:.1f}")
             lines.append(f"  跟踪止损:  ${r['trail_stop']:.1f}")
             lines.append(f"  ATR:       ${r['atr']:.1f} ({r['atr_pct']:.1f}%)")
             lines.append("")
             lines.append("  操作: OKX交易所 → 买入按钮 → 市价买入")
-            lines.append(f"  止损单: 限价${r['stop_loss']:.1f}, 触发即卖")
+            lines.append("  退出条件: 跌破MA或跟踪止损 → 系统发邮件通知")
             lines.append("")
         elif r.get("exit"):
             sell_count += 1
@@ -147,6 +147,7 @@ def send_email(results):
         return True
     except Exception as e:
         print(f"❌ 发送失败: {e}")
+        print("⚠️ 仓位文件已更新, 但邮件通知失败. 下次运行将从正确状态继续.")
         return False
 
 
