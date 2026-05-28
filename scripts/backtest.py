@@ -65,7 +65,6 @@ def backtest(data, cfg, verbose=False):
                 position = 0
                 entry_date = ""
         elif p > ma_val + cfg["buy_atr_mult"] * atr_val:
-            # 买入条件: p > MA + buy_atr_mult*ATR + 成交量确认
             vol_ok = True
             if i >= cfg["vol_lookback"]:
                 avg_vol = sum(d["v"] for d in data[i - cfg["vol_lookback"]:i]) / cfg["vol_lookback"]

@@ -36,7 +36,7 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
         if pos > 0:
             hi = max(hi, data[i]['h'])
             if p < tv or p < hi - trail_m * av:
-                cash += pos * p * fee
+                cash = pos * p * fee
                 pos = 0.0
         elif p > tv + buy_m * av:
                 vo = True
@@ -45,11 +45,11 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
                     if data[i]['v'] < avg_vol * vol_th:
                         vo = False
                 if vo:
-                    alloc = cash * fee
-                    pos, ep, hi = alloc / p, p, data[i]['h']
-                    cash -= alloc
+                    pos = (cash * fee) / p
+                    ep, hi = p, data[i]['h']
+                    cash = 0.0
     if pos > 0:
-        cash += pos * last_p * fee
+        cash = pos * last_p * fee
     return (cash / 10000 - 1) * 100
 
 
