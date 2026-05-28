@@ -361,6 +361,48 @@ def test_corrupted_position_no_duplicate_entry():
         st.WORKSPACE = old_workspace
 
 
+def test_check_exit_entry_before_data_window():
+    """Bug: when entry_date is before data window (position > 200 days),
+    ALL bars satisfy d['date_str'] >= entry_date, incorrectly including
+    pre-entry highs. Fix: use stored_highest from position file as floor,
+    plus only recent data as supplement when entry not in window."""
+    cfg = get_config("BTC")
+
+    # Simulate: position entered long ago, entry bar & pre-entry spike
+    # are NOT in the 200-bar data window. But stored_highest in position
+    # file preserves the entry bar's high.
+    # Create data with a pre-entry spike at the BEGINNING (far from recent bars)
+    # Simulates: position held >200 days, entry bar/spike no longer in window
+    data = make_data(45, 100, 101, 99, 10000)
+    # Pre-entry spike at bar 5 (high=250!) — outside last 30 bars
+    data[5] = {"date": 5, "date_str": "2022-01-06",
+               "o": 100, "h": 250, "l": 99, "c": 100, "v": 10000}
+    # Entry bar
+    data.append({"date": 45, "date_str": "2022-02-15",
+                 "o": 100, "h": 112, "l": 100, "c": 108, "v": 20000})
+    for i in range(10):
+        data.append({"date": 46 + i, "date_str": f"2022-02-{16+i}",
+                     "o": 108, "h": 109, "l": 105, "c": 107, "v": 10000})
+
+    # Test A: entry_date within window — standard date filter works
+    r1 = check_exit(data.copy(), 108, cfg, entry_date="2022-02-15", stored_highest=112)
+    assert r1["exit"] is False, f"entry in window: should NOT exit, got exit={r1['exit']}"
+    print(f"  Test A (entry in window): exit={r1['exit']}, trail_stop={r1['trail_stop']:.1f}")
+
+    # Test B: entry_date BEFORE window (simulating 200+ day position)
+    # Without fix: ALL data >= "2020-01-01" → incorrectly includes highs
+    # from bars that happened before the actual entry
+    # With fix: entry_date < data[0] → uses stored_highest=112 + recent data
+    r2 = check_exit(data.copy(), 108, cfg, entry_date="2020-01-01", stored_highest=112)
+    assert r2["exit"] is False, \
+        f"entry before window: should NOT exit (uses stored_highest), got exit={r2['exit']}"
+    print(f"  Test B (entry before window): exit={r2['exit']}, trail_stop={r2['trail_stop']:.1f}")
+
+    assert r1["exit"] == r2["exit"], \
+        f"exit decision must be identical! in_window={r1['exit']}, before_window={r2['exit']}"
+    print(f"  PASS: both scenarios agree (exit={r1['exit']})")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Bug 修复验证")
@@ -400,5 +442,8 @@ if __name__ == "__main__":
 
     print("\n[Test 12] 损坏仓位文件不重复买入")
     test_corrupted_position_no_duplicate_entry()
+
+    print("\n[Test 13] check_exit entry_date 超出数据窗口不含入场前高价")
+    test_check_exit_entry_before_data_window()
 
     print("\nDone.")

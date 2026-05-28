@@ -69,7 +69,7 @@ def generate_signal(data, cfg):
     }
 
 
-def check_exit(data, entry_price, cfg, entry_date=None):
+def check_exit(data, entry_price, cfg, entry_date=None, stored_highest=0):
     n = len(data)
     ma_p = cfg["ma_period"]
     if n < ma_p:
@@ -82,8 +82,12 @@ def check_exit(data, entry_price, cfg, entry_date=None):
     current = data[-1]
 
     if entry_date:
-        candidates = [d["h"] for d in data if d["date_str"] >= entry_date]
-        highest = max(candidates) if candidates else max(d["h"] for d in data[-ma_p:])
+        if entry_date >= data[0]["date_str"]:
+            candidates = [d["h"] for d in data if d["date_str"] >= entry_date]
+            window_high = max(candidates) if candidates else max(d["h"] for d in data[-ma_p:])
+            highest = max(window_high, stored_highest)
+        else:
+            highest = max(stored_highest, max(d["h"] for d in data[-ma_p:]))
     else:
         highest = max(d["h"] for d in data[-ma_p:])
 
@@ -128,6 +132,7 @@ def run():
         has_position = False
         entry_price = 0
         entry_date = None
+        stored_highest = 0
         if os.path.exists(pos_file):
             try:
                 with open(pos_file) as f:
@@ -136,11 +141,12 @@ def run():
                     has_position = True
                     entry_price = pos.get("entry_price", 0)
                     entry_date = pos.get("entry_date")
+                    stored_highest = pos.get("highest", 0)
             except:
                 pass
 
         if has_position and entry_price > 0:
-            exit_r = check_exit(data, entry_price, cfg, entry_date)
+            exit_r = check_exit(data, entry_price, cfg, entry_date, stored_highest)
             results[name] = exit_r
             if exit_r.get("exit"):
                 try:
@@ -158,6 +164,7 @@ def run():
                     "entry_price": sig["entry_price"],
                     "stop_loss": sig["stop_loss"],
                     "trail_stop": sig["trail_stop"],
+                    "highest": data[-1]["h"],
                     "exited": False,
                 }
                 with open(pos_file, "w") as f:
