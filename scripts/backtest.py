@@ -64,14 +64,14 @@ def backtest(data, cfg, verbose=False):
                 cash = position * p * fee_mult
                 position = 0
                 entry_date = ""
-        else:
-            buy_trigger = ma_val + cfg["buy_atr_mult"] * atr_val
+        elif p > ma_val + cfg["buy_atr_mult"] * atr_val:
+            # 买入条件: p > MA + buy_atr_mult*ATR + 成交量确认
             vol_ok = True
             if i >= cfg["vol_lookback"]:
                 avg_vol = sum(d["v"] for d in data[i - cfg["vol_lookback"] + 1:i + 1]) / cfg["vol_lookback"]
                 if data[i]["v"] < avg_vol * cfg["vol_threshold"]:
                     vol_ok = False
-            if p > buy_trigger and vol_ok:
+            if vol_ok:
                 position = (cash * fee_mult) / p
                 entry_price = p
                 highest = p

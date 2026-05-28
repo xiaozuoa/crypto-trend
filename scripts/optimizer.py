@@ -29,8 +29,7 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m):
             if p < tv or p < hi - trail_m * av:
                 cash += pos * p * 0.999
                 pos = 0.0
-        else:
-            if p > tv + buy_m * av:
+        elif p > tv + buy_m * av:
                 vo = True
                 if i >= 20:
                     avg_vol = sum(d['v'] for d in data[i-20:i]) / 20
