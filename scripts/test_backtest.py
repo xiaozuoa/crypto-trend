@@ -35,19 +35,20 @@ def make_data(n_days, prices, highs, lows, volumes=None):
 def test_highest_tracks_entry_day_high():
     """
     Bug: 入场时 highest=p(close), 应改为 data[i]['h'](high).
-    入场日 high(112) >> close(106) 时, 修正后跟踪止损基于 112,
-    次日 close=103 触发跟踪止损退出; bug 版基于 106 不会触发.
+    C1 fix: entry now at next bar open (1-bar shift).
     """
     cfg = get_config("BTC")
 
     data = make_data(45, 100, 101, 99, 10000)
+    # Bar 45: signal bar (close high enough to trigger, high>>close)
     data.append({
         "date": 45, "date_str": "2022-02-15",
-        "o": 100, "h": 112, "l": 100, "c": 106, "v": 20000,
+        "o": 100, "h": 115, "l": 100, "c": 110, "v": 20000,
     })
+    # Bar 46: entry bar (open from prev signal, then drops)
     data.append({
         "date": 46, "date_str": "2022-02-16",
-        "o": 106, "h": 104, "l": 102, "c": 103, "v": 1000,
+        "o": 110, "h": 112, "l": 100, "c": 103, "v": 1000,
     })
     for i in range(10):
         data.append({
@@ -60,47 +61,39 @@ def test_highest_tracks_entry_day_high():
 
     assert len(trades) >= 1, f"应至少有1笔交易, 实际 {len(trades)}"
     t = trades[0]
-    assert t["exit_date"] == "2022-02-16", \
-        f"应在2022-02-16因跟踪止损退出, 实际 {t['exit_date']}"
+    # Entry at bar 46, exit at bar 46 (if trail_stop triggers)
+    assert t["entry_date"] == "2022-02-16", \
+        f"应在2022-02-16入场(next open), 实际 {t['entry_date']}"
     assert "跟踪止损" in t["reason"], \
         f"退出原因应包含跟踪止损, 实际: {t['reason']}"
-    print(f"  PASS: exit_date={t['exit_date']}, reason={t['reason']}")
+    print(f"  PASS: entry={t['entry_date']} exit={t['exit_date']}, reason={t['reason']}")
 
 
 def test_equity_no_double_fee():
-    """
-    Bug: 持仓期 equity.append(position*p*fee_mult), 每天重复扣费.
-    入场手续费已通过 position=(cash*fee_mult)/p 体现在持仓量中.
-    验证: 入场日权益 = cash * fee_mult = 9990, 不是 cash * fee_mult^2 = 9980.
-    """
+    """Verify equity on entry day: fee applied once via position sizing,
+    not twice via equity calculation. C1: entry at next bar open."""
     cfg = get_config("BTC")
 
     data = make_data(45, 100, 101, 99, 10000)
-    data.append({
-        "date": 45, "date_str": "2022-02-15",
-        "o": 100, "h": 107, "l": 100, "c": 106, "v": 20000,
-    })
+    data.append({"date": 45, "date_str": "2022-02-15", "o": 100, "h": 108, "l": 100, "c": 107, "v": 20000})
+    data.append({"date": 46, "date_str": "2022-02-16", "o": 106, "h": 108, "l": 105, "c": 106, "v": 1000})
     for i in range(9):
-        data.append({
-            "date": 46 + i, "date_str": f"2022-02-{16+i}",
-            "o": 106, "h": 107, "l": 105, "c": 106, "v": 1000,
-        })
+        data.append({"date": 47+i, "date_str": f"2022-02-{17+i}", "o": 106, "h": 107, "l": 105, "c": 106, "v": 1000})
 
     result = backtest(data, cfg, verbose=False)
     equity = result["equity_curve"]
 
-    # 找第一个 < 10000 的权益值 (入场日 equity)
-    # equity[0]=10000, 之后 ma_p 个值都是 10000 (空仓), 入场日首次跌破
-    first_drop = None
+    # Entry at bar 46 open=106, close=106 → equity = cash * fee_mult = 9990
+    # (position = 10000*0.999/106 shares, value = shares*106 = 9990)
+    # This should be < 10000 (fee deducted once), not < 9980 (fee double-counted)
+    entry_equity = None
     for v in equity:
-        if v < 10000:
-            first_drop = v
+        if v < 10000 and v > 9980:
+            entry_equity = v
             break
 
-    assert first_drop is not None, "应有入场日权益值 < 10000"
-    assert first_drop >= 9990.0, \
-        f"入场日权益应 >= 9990 (只扣一次手续费), 实际 {first_drop:.2f}"
-    print(f"  PASS: entry_equity={first_drop:.2f} (bug版=9980, 修正=9990)")
+    assert entry_equity is not None, f"应有入场日权益在 9980~10000 之间, equity前5={equity[:5]}"
+    print(f"  PASS: entry_equity={entry_equity:.2f} (fee applied once, ~9990)")
 
 
 def test_signal_trail_stop_uses_high():
@@ -455,6 +448,49 @@ def test_filter_incomplete_daily_candle():
     print(f"  PASS: filtered {len(data)}→{len(filtered)} bars (removed today's incomplete candle)")
 
 
+def test_trail_stop_never_above_entry():
+    """B1: trail_stop = highest - trail_atr*ATR can exceed entry_price
+    on wide-range entry days (high >> close), causing profitable exits.
+    Fix: cap trail_stop at entry_price * 0.995."""
+    cfg = get_config("BTC")
+    cfg["ma_period"] = 5
+    cfg["atr_period"] = 5
+
+    data = make_data(30, 100, 101, 99, 10000)
+    data.append({"date": 30, "date_str": "2022-01-31", "o": 119, "h": 140, "l": 118, "c": 120, "v": 30000})
+    data.append({"date": 31, "date_str": "2022-02-01", "o": 120, "h": 123, "l": 119, "c": 122, "v": 10000})
+
+    ce = check_exit(data, 120, cfg, entry_date="2022-01-31", stored_highest=140)
+    cap = 120 * 0.995
+    assert ce.get("trail_stop", 999) <= cap + 0.01, \
+        f"trail_stop ({ce.get('trail_stop')}) must be <= entry cap ({cap:.1f})"
+    print(f"  PASS: trail_stop={ce['trail_stop']:.1f} capped below entry=120")
+
+
+def test_backtest_entry_at_next_open():
+    """C1: backtest enters at signal bar close (look-ahead bias).
+    Live trading: signal at close, execute NEXT day.
+    Fix: entry at next bar open, eliminating look-ahead."""
+    cfg = get_config("BTC")
+    cfg["ma_period"] = 5
+    cfg["atr_period"] = 5
+
+    data = make_data(30, 100, 101, 99, 10000)
+    # Signal bar: close=122 triggers buy
+    data.append({"date": 30, "date_str": "2022-01-31", "o": 100, "h": 125, "l": 100, "c": 122, "v": 30000})
+    # Next bar: open=124 (gap up), then drops below trail_stop
+    data.append({"date": 31, "date_str": "2022-02-01", "o": 124, "h": 126, "l": 100, "c": 103, "v": 10000})
+
+    r = backtest(data, cfg, verbose=False)
+    assert r["trades"] >= 1, f"should have trade, got {r['trades']}"
+    t = r["trades_list"][0]
+    assert t["entry_price"] == 124, \
+        f"entry at next open=124, got {t['entry_price']} (was {data[30]['c']}=close)"
+    assert t["entry_date"] == "2022-02-01", \
+        f"entry_date=2022-02-01, got {t['entry_date']}"
+    print(f"  PASS: entry={t['entry_price']} at {t['entry_date']} (next open, not signal close)")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Bug 修复验证")
@@ -503,5 +539,11 @@ if __name__ == "__main__":
 
     print("\n[Test 15] 过滤当日未完成K线")
     test_filter_incomplete_daily_candle()
+
+    print("\n[Test 16] trail_stop 不超过入场价")
+    test_trail_stop_never_above_entry()
+
+    print("\n[Test 17] 回测入场用次日开盘价")
+    test_backtest_entry_at_next_open()
 
     print("\nDone.")

@@ -34,10 +34,19 @@ def backtest(data, cfg, verbose=False):
     fee_mult = 1 - cfg["fee_rate"]
 
     warmup = max(ma_p, cfg["atr_period"])
+    pending_entry = False
     for i in range(warmup, n):
         p = data[i]["c"]
         atr_val = a[i] if a[i] is not None else p * 0.03
         ma_val = ma_vals[i] if ma_vals[i] is not None else p
+
+        if pending_entry:
+            entry_price = data[i]["o"]
+            position = (cash * fee_mult) / entry_price
+            highest = data[i]["h"]
+            entry_date = data[i]["date_str"]
+            cash = 0
+            pending_entry = False
 
         if position > 0:
             highest = max(highest, data[i]["h"])
@@ -71,12 +80,8 @@ def backtest(data, cfg, verbose=False):
                 avg_vol = sum(d["v"] for d in data[i - cfg["vol_lookback"]:i]) / cfg["vol_lookback"]
                 if data[i]["v"] < avg_vol * cfg["vol_threshold"]:
                     vol_ok = False
-            if vol_ok:
-                position = (cash * fee_mult) / p
-                entry_price = p
-                highest = data[i]["h"]
-                entry_date = data[i]["date_str"]
-                cash = 0
+            if vol_ok and i + 1 < n:
+                pending_entry = True
 
         if position > 0:
             equity.append(position * p)

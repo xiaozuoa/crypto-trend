@@ -92,6 +92,8 @@ def check_exit(data, entry_price, cfg, entry_date=None, stored_highest=0):
         highest = max(d["h"] for d in data[-ma_p:])
 
     trail_stop = highest - cfg["trail_atr_mult"] * current_atr
+    if trail_stop > entry_price * 0.995:
+        trail_stop = entry_price * 0.995
 
     reasons = []
     ma_type = cfg.get("ma_type", "MA").upper()
