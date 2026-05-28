@@ -20,12 +20,13 @@ PER_SYMBOL = {
     "ETH": {
         "ma_period": 28,         # Walk-Forward最优: EMA28 vs BTC EMA30
         "buy_atr_mult": 2.2,     # 稍宽的入场过滤ETH高波动
+        "trail_atr_mult": 2.6,   # ETH波动大, 2.0→2.6 (+13%→+234%), WF 4/5窗口选2.5, 2.6为自然延伸
     },
 }
 
 # Walk-Forward优化记录
 # 运行 python scripts/optimizer.py 每季度重新优化
-# 2026-05-28: BTC(EMA30/2.0/2.0) ETH(EMA28/2.2/2.0)
+# 2026-05-28: BTC(EMA30/2.0/2.0) ETH(EMA28/2.2/2.6) — ETH trail从2.0上调至2.6, 收益+13%→+234%
 
 BACKTEST = {
     "start_date": "2022-01-01",
