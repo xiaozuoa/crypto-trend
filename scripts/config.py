@@ -18,6 +18,7 @@ PER_SYMBOL = {
         # EMA30 buy=2.0 trail=2.0
     },
     "ETH": {
+        "ma_period": 28,         # Walk-Forward最优: EMA28 vs BTC EMA30
         "buy_atr_mult": 2.2,     # 稍宽的入场过滤ETH高波动
     },
 }

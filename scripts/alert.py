@@ -80,7 +80,7 @@ def send_email(results):
             lines.append(f"  🔥 {name} 买入信号!")
             lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
             lines.append(f"  入场价:   ${r['entry_price']:.1f}")
-            lines.append(f"  止损(MA50): ${r['stop_loss']:.1f}")
+            lines.append(f"  止损(MA): ${r['stop_loss']:.1f}")
             lines.append(f"  跟踪止损:  ${r['trail_stop']:.1f}")
             lines.append(f"  ATR:       ${r['atr']:.1f} ({r['atr_pct']:.1f}%)")
             lines.append("")

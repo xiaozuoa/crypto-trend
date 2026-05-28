@@ -43,13 +43,13 @@ def backtest(data, cfg, verbose=False):
             trail_stop = highest - cfg["trail_atr_mult"] * atr_val
 
             exit_signal = False
-            exit_reason = ""
+            exit_reasons = []
             if p < ma_val:
                 exit_signal = True
-                exit_reason = f"跌破{cfg['ma_type'].upper()}{ma_p}"
+                exit_reasons.append(f"跌破{cfg['ma_type'].upper()}{ma_p}")
             if p < trail_stop:
                 exit_signal = True
-                exit_reason = "跌破跟踪止损"
+                exit_reasons.append("跌破跟踪止损")
 
             if exit_signal:
                 profit = (p - entry_price) / entry_price * 100
@@ -59,7 +59,7 @@ def backtest(data, cfg, verbose=False):
                     "entry_price": round(entry_price, 2),
                     "exit_price": round(p, 2),
                     "profit_pct": round(profit, 2),
-                    "reason": exit_reason,
+                    "reason": "; ".join(exit_reasons),
                 })
                 cash = position * p * fee_mult
                 position = 0

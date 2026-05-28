@@ -23,13 +23,14 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
     vol_lb = cfg["vol_lookback"]
     vol_th = cfg["vol_threshold"]
     fee = 1 - cfg["fee_rate"]
-    cash, pos, ep, hi = 10000.0, 0.0, 0.0, 0.0
+    cash, pos, ep, hi, last_p = 10000.0, 0.0, 0.0, 0.0, data[0]['c']
     for i in range(period + atr_p, n):
         if start_date and data[i]['date_str'] < start_date:
             continue
         if end_date and data[i]['date_str'] >= end_date:
             continue
         p = data[i]['c']
+        last_p = p
         av = a[i] if a[i] else p * 0.03
         tv = t[i] if t[i] else p
         if pos > 0:
@@ -48,7 +49,7 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
                     pos, ep, hi = alloc / p, p, data[i]['h']
                     cash -= alloc
     if pos > 0:
-        cash += pos * data[-1]['c'] * fee
+        cash += pos * last_p * fee
     return (cash / 10000 - 1) * 100
 
 
