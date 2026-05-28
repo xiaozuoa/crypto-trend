@@ -69,7 +69,7 @@ def fetch_daily_full(symbol, start_date="2022-01-01"):
             if data.get("code") != "0" or not data.get("data"):
                 break
             candles = data["data"]
-            if len(candles) < 2:
+            if len(candles) == 0:
                 break
             all_data = candles + all_data
             after = candles[-1][0]

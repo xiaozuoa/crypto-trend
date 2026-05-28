@@ -46,7 +46,7 @@ cd scripts && python optimizer.py
 │   ├── backtest.py       # 回测引擎
 │   ├── optimizer.py      # Walk-Forward参数优化
 │   ├── data_engine.py    # OKX API
-│   ├── indicators.py     # EMA/ATR/SMA/MACD
+│   ├── indicators.py     # EMA/ATR/SMA
 │   └── config.py         # 策略参数
 └── requirements.txt
 ```

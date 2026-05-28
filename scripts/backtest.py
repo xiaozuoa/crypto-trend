@@ -13,7 +13,7 @@ from config import get_config, BACKTEST
 def backtest(data, cfg, verbose=False):
     n = len(data)
     ma_p = cfg["ma_period"]
-    if n < ma_p + 14:
+    if n <= max(ma_p, cfg["atr_period"]):
         return None
 
     if cfg.get("ma_type") == "ema":
@@ -35,8 +35,8 @@ def backtest(data, cfg, verbose=False):
 
     for i in range(ma_p, n):
         p = data[i]["c"]
-        atr_val = a[i] if a[i] else p * 0.03
-        ma_val = ma_vals[i] if ma_vals[i] else p
+        atr_val = a[i] if a[i] is not None else p * 0.03
+        ma_val = ma_vals[i] if ma_vals[i] is not None else p
 
         if position > 0:
             highest = max(highest, data[i]["h"])
@@ -107,7 +107,7 @@ def backtest(data, cfg, verbose=False):
 
     years = len(data) / 365
     annual_ret = ((equity[-1] / equity[0]) ** (1 / max(years, 0.5)) - 1) * 100 if equity[-1] > 0 else 0
-    daily_r = [(equity[i] / equity[i - 1] - 1) for i in range(2, len(equity)) if equity[i - 1] > 0]
+    daily_r = [(equity[i] / equity[i - 1] - 1) for i in range(1, len(equity)) if equity[i - 1] > 0]
     if daily_r:
         avg = sum(daily_r) / len(daily_r)
         std = (sum((r - avg) ** 2 for r in daily_r) / len(daily_r)) ** 0.5

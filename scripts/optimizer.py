@@ -5,7 +5,7 @@ import sys, os, json, math
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_engine import fetch_daily_full, SYMBOLS
 from indicators import ema, atr, sma
-from config import STRATEGY
+from config import STRATEGY, get_config
 from datetime import datetime, timedelta
 
 
@@ -15,7 +15,7 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
         cfg = STRATEGY
     n = len(data)
     atr_p = cfg["atr_period"]
-    if n < period + atr_p:
+    if n <= max(period, atr_p):
         return None
     ma_fn = ema if cfg.get("ma_type") == "ema" else sma
     t = ma_fn(data, period)
@@ -23,7 +23,7 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
     vol_lb = cfg["vol_lookback"]
     vol_th = cfg["vol_threshold"]
     fee = 1 - cfg["fee_rate"]
-    cash, pos, ep, hi, last_p = 10000.0, 0.0, 0.0, 0.0, data[0]['c']
+    cash, pos, hi, last_p = 10000.0, 0.0, 0.0, data[0]['c']
     warmup = max(period, atr_p)
     for i in range(warmup, n):
         if start_date and data[i]['date_str'] < start_date:
@@ -54,7 +54,7 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
     return (cash / 10000 - 1) * 100
 
 
-def grid_search(data, start_date=None, end_date=None):
+def grid_search(data, start_date=None, end_date=None, cfg=None):
     """网格搜索最优 (period, buy_atr, trail_atr)"""
     best = -999
     best_params = (30, 2.0, 2.0)
@@ -62,14 +62,14 @@ def grid_search(data, start_date=None, end_date=None):
     for period in [20, 24, 28, 30, 35, 40, 50]:
         for buy_m in [1.5, 1.8, 2.0, 2.2, 2.5]:
             for trail_m in [1.8, 2.0, 2.2, 2.5, 3.0]:
-                r = backtest_range(data, start_date, end_date, period, buy_m, trail_m)
+                r = backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=cfg)
                 if r is not None and r > best:
                     best = r
                     best_params = (period, buy_m, trail_m)
     return best_params, best
 
 
-def walk_forward_optimize(data, train_years=2, test_months=6):
+def walk_forward_optimize(data, train_years=2, test_months=6, cfg=None):
     """Walk-Forward滚动优化, 返回每窗口的最优参数"""
     n = len(data)
     dates = sorted(set(d['date_str'] for d in data))
@@ -96,8 +96,8 @@ def walk_forward_optimize(data, train_years=2, test_months=6):
         test_data = [d for d in data if tss_str <= d['date_str'] < tse_str]
 
         if len(train_data) >= 365 and len(test_data) >= 90:
-            params, train_ret = grid_search(train_data)
-            test_ret = backtest_range(data, tss_str, tse_str, *params)
+            params, train_ret = grid_search(train_data, cfg=cfg)
+            test_ret = backtest_range(data, tss_str, tse_str, *params, cfg=cfg)
             windows.append({
                 'train_start': train_start_date,
                 'train_end': te_str,
@@ -131,11 +131,15 @@ def main():
         print(f'  数据: {data[0]["date_str"]} ~ {data[-1]["date_str"]} ({len(data)}天)')
 
         # Full backtest with current static params
-        static_ret = backtest_range(data, None, None, 30, 2.0, 2.0)
-        print(f'  Static EMA30: {static_ret:+.1f}%')
+        cfg = get_config(name)
+        ma_label = f"{cfg['ma_type'].upper()}{cfg['ma_period']}"
+        static_ret = backtest_range(data, None, None,
+                                    cfg["ma_period"], cfg["buy_atr_mult"], cfg["trail_atr_mult"],
+                                    cfg=cfg)
+        print(f'  Static {ma_label}: {static_ret:+.1f}%')
 
         # Walk-forward
-        windows = walk_forward_optimize(data)
+        windows = walk_forward_optimize(data, cfg=cfg)
         print(f'  Walk-Forward windows: {len(windows)}')
         compound = 1.0
         for w in windows:

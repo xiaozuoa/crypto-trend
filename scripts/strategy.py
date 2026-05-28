@@ -29,14 +29,14 @@ def generate_signal(data, cfg):
     ma_vals = get_ma(data, cfg)
     a = atr(data, cfg["atr_period"])
     current = data[-1]
-    current_ma = ma_vals[-1] if ma_vals[-1] else current["c"]
-    current_atr = a[-1] if a[-1] else current["c"] * 0.03
+    current_ma = ma_vals[-1] if ma_vals[-1] is not None else current["c"]
+    current_atr = a[-1] if a[-1] is not None else current["c"] * 0.03
 
     buy_trigger = current_ma + cfg["buy_atr_mult"] * current_atr
     price_ok = current["c"] > buy_trigger
 
     vol_ok = True
-    if len(data) >= cfg["vol_lookback"]:
+    if len(data) > cfg["vol_lookback"]:
         avg_vol = sum(d["v"] for d in data[-cfg["vol_lookback"]-1:-1]) / cfg["vol_lookback"]
         if data[-1]["v"] < avg_vol * cfg["vol_threshold"]:
             vol_ok = False
@@ -76,9 +76,9 @@ def check_exit(data, entry_price, cfg, entry_date=None):
         return {"exit": False, "reason": "数据不足"}
 
     ma_vals = get_ma(data, cfg)
-    current_ma = ma_vals[-1] if ma_vals[-1] else data[-1]["c"]
+    current_ma = ma_vals[-1] if ma_vals[-1] is not None else data[-1]["c"]
     a = atr(data, cfg["atr_period"])
-    current_atr = a[-1] if a[-1] else data[-1]["c"] * 0.03
+    current_atr = a[-1] if a[-1] is not None else data[-1]["c"] * 0.03
     current = data[-1]
 
     if entry_date:
