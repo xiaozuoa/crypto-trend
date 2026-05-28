@@ -82,7 +82,8 @@ def check_exit(data, entry_price, cfg, entry_date=None):
     current = data[-1]
 
     if entry_date:
-        highest = max(d["h"] for d in data if d["date_str"] >= entry_date)
+        candidates = [d["h"] for d in data if d["date_str"] >= entry_date]
+        highest = max(candidates) if candidates else max(d["h"] for d in data[-ma_p:])
     else:
         highest = max(d["h"] for d in data[-ma_p:])
 

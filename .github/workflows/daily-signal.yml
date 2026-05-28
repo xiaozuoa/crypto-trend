@@ -18,6 +18,17 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Create workspace
+        run: mkdir -p ~/.crypto-trend/workspace
+
+      - name: Restore position cache
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.crypto-trend/workspace
+          key: crypto-positions-${{ github.run_number }}
+          restore-keys: crypto-positions-
+
       - name: Run strategy
         env:
           TZ: Asia/Shanghai
@@ -27,3 +38,9 @@ jobs:
         run: |
           cd scripts
           python alert.py
+
+      - name: Save position cache
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.crypto-trend/workspace
+          key: crypto-positions-${{ github.run_number }}

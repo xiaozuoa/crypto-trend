@@ -10,6 +10,29 @@ ssl_ctx = ssl.create_default_context()
 
 SYMBOLS = {"BTC": "BTC-USDT", "ETH": "ETH-USDT"}
 
+
+def _valid_candle(c):
+    """校验K线数据: high>=low, 价格为正值, 成交量非负"""
+    o, h, l, cl, v = float(c[1]), float(c[2]), float(c[3]), float(c[4]), float(c[5])
+    if h < l or cl <= 0 or h <= 0 or v < 0:
+        return None
+    return (o, h, l, cl, v)
+
+
+def _parse_candle(c):
+    ts = int(c[0])
+    vals = _valid_candle(c)
+    if vals is None:
+        return None
+    o, h, l, cl, v = vals
+    return {
+        "date": ts,
+        "date_str": datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d"),
+        "o": o, "h": h, "l": l,
+        "c": cl, "v": v,
+    }
+
+
 def fetch_daily(symbol, limit=300):
     """获取日线K线, 返回 [{date_ts, o, h, l, c, v}, ...] 按时间升序"""
     url = f"https://www.okx.com/api/v5/market/candles?instId={symbol}&bar=1D&limit={limit}"
@@ -22,17 +45,14 @@ def fetch_daily(symbol, limit=300):
         candles = data["data"]
         result = []
         for c in reversed(candles):  # OKX返回最新在前, 反转
-            ts = int(c[0])
-            result.append({
-                "date": ts,
-                "date_str": datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d"),
-                "o": float(c[1]), "h": float(c[2]), "l": float(c[3]),
-                "c": float(c[4]), "v": float(c[5]),
-            })
+            parsed = _parse_candle(c)
+            if parsed:
+                result.append(parsed)
         return result
     except Exception as e:
         print(f"  fetch error: {e}")
         return []
+
 
 def fetch_daily_full(symbol, start_date="2022-01-01"):
     """获取从start_date至今的所有日线数据"""
@@ -71,14 +91,11 @@ def fetch_daily_full(symbol, start_date="2022-01-01"):
 
     result = []
     for c in unique:
-        ts = int(c[0])
-        result.append({
-            "date": ts,
-            "date_str": datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d"),
-            "o": float(c[1]), "h": float(c[2]), "l": float(c[3]),
-            "c": float(c[4]), "v": float(c[5]),
-        })
+        parsed = _parse_candle(c)
+        if parsed:
+            result.append(parsed)
     return result
+
 
 if __name__ == "__main__":
     for name, sym in SYMBOLS.items():

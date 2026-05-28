@@ -24,7 +24,8 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
     vol_th = cfg["vol_threshold"]
     fee = 1 - cfg["fee_rate"]
     cash, pos, ep, hi, last_p = 10000.0, 0.0, 0.0, 0.0, data[0]['c']
-    for i in range(period + atr_p, n):
+    warmup = max(period, atr_p)
+    for i in range(warmup, n):
         if start_date and data[i]['date_str'] < start_date:
             continue
         if end_date and data[i]['date_str'] >= end_date:
