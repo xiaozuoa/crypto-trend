@@ -23,8 +23,9 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
     vol_lb = cfg["vol_lookback"]
     vol_th = cfg["vol_threshold"]
     fee = 1 - cfg["fee_rate"]
-    cash, pos, hi, last_p = 10000.0, 0.0, 0.0, data[0]['c']
+    cash, pos, hi, entry_price, last_p = 10000.0, 0.0, 0.0, 0.0, data[0]['c']
     warmup = max(period, atr_p)
+    pending_entry = False
     for i in range(warmup, n):
         if start_date and data[i]['date_str'] < start_date:
             continue
@@ -34,11 +35,23 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
         last_p = p
         av = a[i] if a[i] is not None else p * 0.03
         tv = t[i] if t[i] is not None else p
+
+        if pending_entry:
+            pos = (cash * fee) / data[i]['o']
+            hi = data[i]['h']
+            entry_price = data[i]['o']
+            cash = 0.0
+            pending_entry = False
+
         if pos > 0:
-            hi = max(hi, data[i]['h'])
-            if p < tv or p < hi - trail_m * av:
+            trail_stop = hi - trail_m * av
+            if trail_stop > entry_price * 0.995:
+                trail_stop = entry_price * 0.995
+            if p < tv or p < trail_stop:
                 cash = pos * p * fee
                 pos = 0.0
+            else:
+                hi = max(hi, data[i]['h'])
         elif p > tv + buy_m * av:
                 vo = True
                 if i >= max(warmup, vol_lb):
@@ -46,9 +59,11 @@ def backtest_range(data, start_date, end_date, period, buy_m, trail_m, cfg=None)
                     if data[i]['v'] < avg_vol * vol_th:
                         vo = False
                 if vo:
-                    pos = (cash * fee) / p
-                    hi = data[i]['h']
-                    cash = 0.0
+                    next_ok = i + 1 < n
+                    if next_ok and end_date and data[i + 1]['date_str'] >= end_date:
+                        next_ok = False
+                    if next_ok:
+                        pending_entry = True
     if pos > 0:
         cash = pos * last_p * fee
     return (cash / 10000 - 1) * 100

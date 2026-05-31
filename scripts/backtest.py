@@ -49,8 +49,9 @@ def backtest(data, cfg, verbose=False):
             pending_entry = False
 
         if position > 0:
-            highest = max(highest, data[i]["h"])
             trail_stop = highest - cfg["trail_atr_mult"] * atr_val
+            if trail_stop > entry_price * 0.995:
+                trail_stop = entry_price * 0.995
 
             exit_signal = False
             exit_reasons = []
@@ -74,6 +75,8 @@ def backtest(data, cfg, verbose=False):
                 cash = position * p * fee_mult
                 position = 0
                 entry_date = ""
+            else:
+                highest = max(highest, data[i]["h"])
         elif p > ma_val + cfg["buy_atr_mult"] * atr_val:
             vol_ok = True
             if i >= max(warmup, cfg["vol_lookback"]):

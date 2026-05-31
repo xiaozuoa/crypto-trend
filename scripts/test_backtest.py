@@ -491,6 +491,148 @@ def test_backtest_entry_at_next_open():
     print(f"  PASS: entry={t['entry_price']} at {t['entry_date']} (next open, not signal close)")
 
 
+def test_backtest_trail_stop_capped():
+    """Bug: backtest.py trail_stop not capped at entry_price * 0.995.
+    On wide-range entry bars (high >> entry), trail_stop can exceed
+    entry_price, causing immediate exit on the entry bar itself.
+    Fix: cap trail_stop at entry_price * 0.995."""
+    cfg = get_config("BTC")
+    cfg["ma_period"] = 5
+    cfg["atr_period"] = 5
+    # Set very small ATR so trail_stop depends mainly on highest-high
+    cfg["trail_atr_mult"] = 2.0
+
+    # Warmup: tight bars (TR ≈ 0.2 each), ATR5 ≈ 0.2
+    data = make_data(35, 100, 100.1, 99.9, 10000)
+    # Signal bar: breaks out, triggers buy
+    data.append({"date": 35, "date_str": "2022-02-05",
+                 "o": 100, "h": 100.5, "l": 99.5, "c": 104, "v": 20000})
+    # Entry bar: gap up open at signal close, spike high, close still near entry
+    data.append({"date": 36, "date_str": "2022-02-06",
+                 "o": 104, "h": 150, "l": 103, "c": 130, "v": 10000})
+
+    r = backtest(data, cfg, verbose=False)
+    trades = r["trades_list"]
+
+    # Without cap: trail_stop = 150 - 2*ATR ≈ 150 - 0.5 = 149.5
+    #   entry_price=104, so 130 < 149.5 → exits immediately on entry bar (BUG!)
+    # With cap: trail_stop capped at 104*0.995=103.48
+    #   close=130 > 103.48 → no exit on entry bar
+    t0 = trades[0]
+    assert t0["entry_date"] == "2022-02-06", \
+        f"entry_date=2022-02-06, got {t0['entry_date']}"
+    # Should NOT exit on the same bar as entry
+    assert t0["exit_date"] != "2022-02-06", \
+        f"should not exit on entry bar (cap prevents it), got exit={t0['exit_date']}"
+    print(f"  PASS: entry={t0['entry_date']} exit={t0['exit_date']} (not same bar)")
+
+
+def test_backtest_trail_stop_update_order():
+    """Verify backtest with cap+order fix produces valid trades.
+    The trail_stop cap and update-order fix ensure:
+    1. Position can survive entry bar (cap prevents immediate exit)
+    2. Exit triggers correctly when conditions are met"""
+    cfg = get_config("BTC")
+    cfg["ma_period"] = 5
+    cfg["atr_period"] = 5
+    cfg["trail_atr_mult"] = 2.0
+
+    # All warmup bars at c=90 (so MA5 stays low, ATR5 stays small)
+    data = make_data(35, 90, 90.1, 89.9, 10000)
+    # Signal bar: breaks above MA + ATR trigger
+    data.append({"date": 35, "date_str": "2022-02-05",
+                 "o": 90, "h": 105, "l": 90, "c": 104, "v": 20000})
+    # Entry bar
+    data.append({"date": 36, "date_str": "2022-02-06",
+                 "o": 104, "h": 106, "l": 103, "c": 105, "v": 10000})
+    # Gradual rise then drop — exit should trigger on decline
+    for h, c in [(108, 106), (109, 103), (110, 100), (111, 97)]:
+        data.append({"date": len(data), "date_str": f"2022-02-{len(data)-29:02d}",
+                     "o": c - 1, "h": h, "l": c - 2, "c": c, "v": 10000})
+    # Extra bars
+    for i in range(3):
+        data.append({"date": len(data), "date_str": f"2022-02-{len(data)-29:02d}",
+                     "o": 97, "h": 98, "l": 96, "c": 97, "v": 10000})
+
+    r = backtest(data, cfg, verbose=False)
+    trades = r["trades_list"]
+    assert len(trades) >= 1, f"should have at least 1 trade, got {len(trades)}"
+    t0 = trades[0]
+    # Should exit (not held to forced liquidation at end)
+    assert "(强平)" not in t0["exit_date"], \
+        f"should exit before forced liquidation, got {t0['exit_date']}"
+    print(f"  PASS: entry={t0['entry_date']} exit={t0['exit_date']}, reason={t0['reason']}")
+
+
+def test_optimizer_entry_at_next_open():
+    """Bug: optimizer backtest_range enters at signal bar CLOSE (line 49),
+    not next bar's open. This is look-ahead bias.
+    Fix: use pending_entry mechanism to defer entry to next bar's open."""
+    cfg = dict(STRATEGY)
+    cfg["ma_period"] = 5
+    cfg["atr_period"] = 5
+    cfg["vol_lookback"] = 10
+    cfg["vol_threshold"] = 0.5
+
+    # Warmup
+    data = make_data(35, 100, 101, 99, 10000)
+    # Signal bar: triggers buy, close=120
+    data.append({"date": 35, "date_str": "2022-02-05",
+                 "o": 100, "h": 125, "l": 100, "c": 120, "v": 20000})
+    # Entry bar: gap up open=135, then drops below trail_stop
+    data.append({"date": 36, "date_str": "2022-02-06",
+                 "o": 135, "h": 136, "l": 100, "c": 103, "v": 10000})
+
+    r = backtest_range(data, None, None, 5, 2.0, 2.0, cfg=cfg)
+    assert r is not None, "should not return None"
+
+    # Old code (enter at close=120):
+    #   pos = 9990/120 = 83.25, exit at 103 → cash = 83.25*103*0.999 = 8565
+    #   return = -14.35%
+    # New code (enter at open=135):
+    #   pos = 9990/135 = 74.0, exit at 103 → cash = 74*103*0.999 = 7614
+    #   return = -23.86%
+    # The "enter at next open" result should be much worse due to higher entry
+    assert r < -18, \
+        f"should enter at next open (135), return < -18%, got {r:+.1f}%"
+    print(f"  PASS: optimizer enters at next open, return={r:+.1f}%")
+
+
+def test_optimizer_trail_stop_capped_and_order():
+    """Bug: optimizer backtest_range has no trail_stop cap and
+    updates hi before checking stop (same as backtest.py issues).
+    Fix: add entry_price*0.995 cap, check stop before updating hi."""
+    cfg = dict(STRATEGY)
+    cfg["ma_period"] = 5
+    cfg["atr_period"] = 5
+    cfg["vol_lookback"] = 10
+    cfg["vol_threshold"] = 0.5
+
+    # Warmup: tight bars
+    data = make_data(35, 100, 100.1, 99.9, 10000)
+    # Signal bar
+    data.append({"date": 35, "date_str": "2022-02-05",
+                 "o": 100, "h": 100.5, "l": 99.5, "c": 104, "v": 20000})
+    # Entry bar: wide range, close near entry
+    data.append({"date": 36, "date_str": "2022-02-06",
+                 "o": 104, "h": 150, "l": 103, "c": 130, "v": 10000})
+    # Subsequent bars: stay elevated, don't trigger exit
+    for i in range(5):
+        data.append({"date": 37 + i, "date_str": f"2022-02-{7+i:02d}",
+                     "o": 130, "h": 131, "l": 129, "c": 130, "v": 10000})
+
+    r = backtest_range(data, None, None, 5, 2.0, 2.0, cfg=cfg)
+    assert r is not None, "should not return None"
+    # Without cap: enters at 104, trail_stop ≈ 150-ATR > 104, exits immediately
+    #   → return ≈ 0% (from the warmup bars, no position held)
+    # With cap: trail_stop capped at 104*0.995=103.48, close=130 > 103.48
+    #   → holds through all bars → return ≈ (130/104-1)*100*fee ≈ +25%
+    # The positive return proves the cap works (no immediate exit)
+    assert r > 10, \
+        f"with cap should hold position and profit >10%, got {r:+.1f}%"
+    print(f"  PASS: optimizer trail_stop cap works, return={r:+.1f}%")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Bug 修复验证")
@@ -545,5 +687,17 @@ if __name__ == "__main__":
 
     print("\n[Test 17] 回测入场用次日开盘价")
     test_backtest_entry_at_next_open()
+
+    print("\n[Test 18] backtest trail_stop 上限 cap")
+    test_backtest_trail_stop_capped()
+
+    print("\n[Test 19] backtest trail_stop 更新顺序")
+    test_backtest_trail_stop_update_order()
+
+    print("\n[Test 20] optimizer 入场用次日开盘价")
+    test_optimizer_entry_at_next_open()
+
+    print("\n[Test 21] optimizer trail_stop cap + order")
+    test_optimizer_trail_stop_capped_and_order()
 
     print("\nDone.")
